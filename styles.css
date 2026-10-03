@@ -4,7 +4,7 @@
   --charcoal: #171c26; --charcoal-soft: #232a37; --red: #e52f3c;
   --red-dark: #bd202c; --green: #16835d; --blue: #2463d4;
   --shadow: 0 12px 32px rgba(17, 24, 39, .09);
-  --pattern: rgba(20, 29, 44, .045);
+  --page-image: url("assets/background-light.png");
   --field: #fff;
   --panel-hover: #fafbfc;
   --admin-surface: #f6f7f9;
@@ -17,10 +17,11 @@ html[data-theme="dark"] {
   --muted: #9ba6b7; --line: #303949; --line-strong: #445064;
   --charcoal: #11161f; --charcoal-soft: #202836; --red: #f13d49;
   --red-dark: #cf2a35; --green: #35c28b; --blue: #6f9cff;
-  --shadow: 0 14px 34px rgba(0, 0, 0, .3); --pattern: rgba(255, 255, 255, .035);
+  --shadow: 0 14px 34px rgba(0, 0, 0, .3);
+  --page-image: url("assets/background-dark.png");
   --field: #111722; --panel-hover: #202734; --admin-surface: #141a23;
 }
-body { min-width: 320px; min-height: 100vh; margin: 0; color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background-color: var(--page); background-image: linear-gradient(var(--pattern) 1px, transparent 1px), linear-gradient(90deg, var(--pattern) 1px, transparent 1px); background-size: 32px 32px; transition: color 180ms ease, background-color 180ms ease; }
+body { min-width: 320px; min-height: 100vh; margin: 0; color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background-color: var(--page); background-image: var(--page-image); background-repeat: no-repeat; background-position: center top; background-size: cover; background-attachment: fixed; transition: color 180ms ease, background-color 180ms ease; }
 button, input, select { font: inherit; }
 button { border: 0; }
 a { color: inherit; }
@@ -147,6 +148,7 @@ html[data-theme="dark"] .footer a { color: #e3e8ef; }
   .auth-copy { border-right: 0; border-bottom: 4px solid var(--red); }
 }
 @media (max-width: 650px) {
+  body { background-attachment: scroll; background-position: center top; }
   .hero { align-items: stretch; flex-direction: column; }
   .header-actions { align-items: stretch; }
   .theme-toggle { min-height: 52px; }
