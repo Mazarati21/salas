@@ -5,6 +5,7 @@ const queryPort = Number(process.env.TS_QUERY_PORT || 10011);
 const voicePort = process.env.TS_VOICE_PORT;
 const user = process.env.TS_USER;
 const pass = process.env.TS_PASS;
+const queryNickname = process.env.TS_QUERY_NICKNAME?.trim() || "LegendZ Salas";
 const quiet = process.env.TS_QUIET === "1";
 
 function assertConfiguration() {
@@ -133,6 +134,10 @@ class TeamSpeakQuery {
   async login() {
     await this.command("login", `login client_login_name=${tsEscape(user)} client_login_password=${tsEscape(pass)}`);
     await this.command("use", `use port=${voicePort}`);
+    await this.command(
+      "definir nickname do ServerQuery",
+      `clientupdate client_nickname=${tsEscape(queryNickname)}`
+    );
     // The connection timeout protects login only. Persistent Query connections
     // are kept alive by TeamSpeakService and must not die while briefly idle.
     this.socket.setTimeout(0);

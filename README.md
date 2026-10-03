@@ -24,7 +24,7 @@ npm run build
 npm test
 ```
 
-Define as variáveis `TS_HOST`, `TS_QUERY_PORT`, `TS_VOICE_PORT`, `TS_USER` e `TS_PASS`, e depois executa:
+Define as variáveis `TS_HOST`, `TS_QUERY_PORT`, `TS_VOICE_PORT`, `TS_USER` e `TS_PASS`. Opcionalmente, usa `TS_QUERY_NICKNAME` para identificar o cliente técnico no TeamSpeak; o valor predefinido é `LegendZ Salas`. Depois executa:
 
 ```powershell
 $env:ALLOW_LOCAL_QUERY_OWNER_FALLBACK="1"
