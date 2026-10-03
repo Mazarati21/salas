@@ -41,6 +41,7 @@ let store;
 const teamSpeak = new TeamSpeakService();
 const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
+let banCache = { expiresAt: 0, bans: [] };
 
 const groupCategories = [
   { key: "jogos", title: "Jogos", limit: 4, sgids: [241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 312, 325, 327, 328, 329, 337, 1265, 172870, 174334] },
@@ -753,9 +754,67 @@ async function authenticationStatus(request) {
   };
 }
 
+function cleanPublicText(value, fallback, maxLength = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+async function getPublicBans() {
+  if (banCache.expiresAt > Date.now()) return banCache.bans;
+
+  const bans = await withTeamSpeak(async (ts) => {
+    let items;
+    try {
+      items = parseItems(await ts.command("listar bans", "banlist"));
+    } catch (error) {
+      if (/error id=1281\b/.test(String(error.message))) return [];
+      throw error;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    return items
+      .map((item) => {
+        const createdAt = Math.max(0, Number(item.created) || 0);
+        const duration = Math.max(0, Number(item.duration) || 0);
+        const expiresAt = duration > 0 ? createdAt + duration : null;
+        return {
+          id: Math.max(0, Number(item.banid) || 0),
+          name: cleanPublicText(item.lastnickname, "Sem nome", 80),
+          staff: cleanPublicText(item.invokername, "Servidor", 80),
+          reason: cleanPublicText(item.reason, "Sem razao indicada", 180),
+          createdAt,
+          duration,
+          expiresAt,
+          permanent: duration === 0
+        };
+      })
+      .filter((item) => item.permanent || item.expiresAt > now)
+      .sort((left, right) => right.createdAt - left.createdAt);
+  });
+
+  banCache = { expiresAt: Date.now() + 15000, bans };
+  return bans;
+}
+
 async function handleApi(request, response, pathname) {
   try {
     assertRequestAllowed(request, pathname);
+
+    if (pathname === "/api/status" && request.method === "GET") {
+      let teamSpeakOnline = true;
+      try {
+        await withTeamSpeak((ts) => ts.command("verificar TeamSpeak", "whoami"));
+      } catch {
+        teamSpeakOnline = false;
+      }
+      sendJson(response, 200, { ok: true, teamSpeakOnline });
+      return;
+    }
+
+    if (pathname === "/api/bans" && request.method === "GET") {
+      sendJson(response, 200, { ok: true, bans: await getPublicBans(), fetchedAt: Date.now() });
+      return;
+    }
 
     if (pathname === "/api/auth/status" && request.method === "GET") {
       sendJson(response, 200, { ok: true, ...(await authenticationStatus(request)) });
