@@ -1,0 +1,9 @@
+node_modules/
+data/icons/*.bin
+data/rooms.json
+data/rooms.json.migrated
+data/legendz.sqlite
+data/legendz.sqlite-shm
+data/legendz.sqlite-wal
+.env
+*.log

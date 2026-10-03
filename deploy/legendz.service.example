@@ -1,0 +1,22 @@
+[Unit]
+Description=LegendZ TeamSpeak Panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=legendz
+Group=legendz
+WorkingDirectory=/opt/legendz
+EnvironmentFile=/opt/legendz/.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/legendz/data
+
+[Install]
+WantedBy=multi-user.target
