@@ -68,7 +68,7 @@ O `.cpanel.yml` publica apenas os ficheiros necessários em `/home/legendzc/sala
 
 Nesta conta, o repositório cPanel deve ser clonado para `/home/legendzc/repositories/legendz-salas`. Um cron pode atualizar esse clone a partir do GitHub e iniciar o deployment automaticamente após cada alteração em `main`.
 
-O ambiente de produção verifica a branch `main` a cada cinco minutos e só executa o deployment quando o commit remoto mudou.
+O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a API de deployment do cPanel apenas quando o commit remoto mudou.
 
 ## Publicação num VPS
 
