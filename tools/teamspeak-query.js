@@ -134,10 +134,23 @@ class TeamSpeakQuery {
   async login() {
     await this.command("login", `login client_login_name=${tsEscape(user)} client_login_password=${tsEscape(pass)}`);
     await this.command("use", `use port=${voicePort}`);
-    await this.command(
-      "definir nickname do ServerQuery",
-      `clientupdate client_nickname=${tsEscape(queryNickname)}`
-    );
+    try {
+      await this.command(
+        "definir nickname do ServerQuery",
+        `clientupdate client_nickname=${tsEscape(queryNickname)}`
+      );
+    } catch (error) {
+      if (!String(error?.message || error).includes("error id=513")) throw error;
+
+      // During an app restart, TeamSpeak can retain the previous Query session
+      // briefly. Use a unique fallback instead of taking the service offline.
+      const suffix = `${process.pid}-${Date.now().toString(36).slice(-4)}`;
+      const fallbackNickname = `${queryNickname.slice(0, 40)}-${suffix}`;
+      await this.command(
+        "definir nickname alternativo do ServerQuery",
+        `clientupdate client_nickname=${tsEscape(fallbackNickname)}`
+      );
+    }
     // The connection timeout protects login only. Persistent Query connections
     // are kept alive by TeamSpeakService and must not die while briefly idle.
     this.socket.setTimeout(0);
