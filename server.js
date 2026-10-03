@@ -43,7 +43,7 @@ const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
 
 const groupCategories = [
-  { key: "jogos", title: "Jogos", limit: 4, sgids: [241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 312, 325, 327, 328, 329, 337, 1265, 172870] },
+  { key: "jogos", title: "Jogos", limit: 4, sgids: [241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 312, 325, 327, 328, 329, 337, 1265, 172870, 174334] },
   { key: "sexos", title: "Sexos", limit: 1, sgids: [287, 288] },
   { key: "social", title: "Social", limit: 2, sgids: [277, 278, 279, 280, 281, 282, 283] },
   { key: "ranks", title: "Ranks CS2", limit: 1, sgids: [257, 258, 259, 260, 261, 262, 263] },
