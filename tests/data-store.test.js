@@ -5,10 +5,10 @@ const path = require("node:path");
 const test = require("node:test");
 const { DataStore } = require("../tools/data-store");
 
-function withStore(work) {
+async function withStore(work) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "legendz-store-"));
-  const store = new DataStore(directory);
-  try { return work(store); }
+  const store = await DataStore.open(directory);
+  try { return await work(store); }
   finally { store.close(); fs.rmSync(directory, { recursive: true, force: true }); }
 }
 

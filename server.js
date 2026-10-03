@@ -37,7 +37,7 @@ if (!configuredSecret) {
   console.warn("SESSION_SECRET não definido: as sessões locais expiram quando o servidor reinicia.");
 }
 
-const store = new DataStore(dataDir);
+let store;
 const teamSpeak = new TeamSpeakService();
 const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
@@ -907,8 +907,16 @@ server.requestTimeout = 20_000;
 server.headersTimeout = 10_000;
 server.keepAliveTimeout = 5_000;
 server.maxHeadersCount = 60;
-server.listen(port, "127.0.0.1", () => {
-  console.log(`LegendZ server listening at http://127.0.0.1:${port}`);
+async function start() {
+  store = await DataStore.open(dataDir);
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`LegendZ server listening at http://127.0.0.1:${port}`);
+  });
+}
+
+start().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
 
 const cleanupTimer = setInterval(() => store.cleanup(), 60 * 60 * 1000);
@@ -918,7 +926,7 @@ function shutdown() {
   clearInterval(cleanupTimer);
   server.close(() => {
     teamSpeak.close();
-    store.close();
+    if (store) store.close();
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 5000).unref();

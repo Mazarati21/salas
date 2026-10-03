@@ -11,10 +11,10 @@
     "check": "node --check server.js && node --check tools/teamspeak-query.js && node --check tools/data-store.js",
     "test": "node --test tests/data-store.test.js tests/teamspeak-query.test.js"
   },
-  "dependencies": {
-    "better-sqlite3": "12.4.1"
-  },
   "devDependencies": {
     "esbuild": "0.25.10"
+  },
+  "dependencies": {
+    "sql.js": "1.14.2"
   }
 }

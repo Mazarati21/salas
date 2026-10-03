@@ -1,15 +1,87 @@
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+const initSqlJs = require("sql.js");
+
+class PersistentDatabase {
+  constructor(SQL, filePath) {
+    this.filePath = filePath;
+    this.inTransaction = false;
+    this.db = fs.existsSync(filePath) && fs.statSync(filePath).size > 0
+      ? new SQL.Database(fs.readFileSync(filePath))
+      : new SQL.Database();
+  }
+
+  persist() {
+    const temporaryPath = `${this.filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryPath, Buffer.from(this.db.export()));
+    fs.renameSync(temporaryPath, this.filePath);
+  }
+
+  exec(sql) {
+    const command = String(sql).trim().toUpperCase();
+    this.db.run(sql);
+    if (command.startsWith("BEGIN")) {
+      this.inTransaction = true;
+    } else if (command.startsWith("COMMIT")) {
+      this.inTransaction = false;
+      this.persist();
+    } else if (command.startsWith("ROLLBACK")) {
+      this.inTransaction = false;
+    } else if (!this.inTransaction) {
+      this.persist();
+    }
+  }
+
+  prepare(sql) {
+    const query = String(sql);
+    const mutation = /^\s*(INSERT|UPDATE|DELETE|REPLACE)/i.test(query);
+    return {
+      run: (...parameters) => {
+        this.db.run(query, parameters);
+        if (mutation && !this.inTransaction) this.persist();
+      },
+      get: (...parameters) => {
+        const statement = this.db.prepare(query);
+        try {
+          statement.bind(parameters);
+          return statement.step() ? statement.getAsObject() : undefined;
+        } finally {
+          statement.free();
+        }
+      },
+      all: (...parameters) => {
+        const statement = this.db.prepare(query);
+        const rows = [];
+        try {
+          statement.bind(parameters);
+          while (statement.step()) rows.push(statement.getAsObject());
+          return rows;
+        } finally {
+          statement.free();
+        }
+      }
+    };
+  }
+
+  close() {
+    this.persist();
+    this.db.close();
+  }
+}
 
 class DataStore {
-  constructor(dataDir) {
+  static async open(dataDir) {
+    const SQL = await initSqlJs({
+      locateFile: (file) => require.resolve(`sql.js/dist/${file}`)
+    });
+    return new DataStore(dataDir, SQL);
+  }
+
+  constructor(dataDir, SQL) {
     fs.mkdirSync(dataDir, { recursive: true });
     this.dbPath = path.join(dataDir, "legendz.sqlite");
-    this.db = new Database(this.dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL");
+    this.db = new PersistentDatabase(SQL, this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON");
-    this.db.exec("PRAGMA busy_timeout = 5000");
     this.createSchema();
     this.migrateLegacyRooms(path.join(dataDir, "rooms.json"));
   }
