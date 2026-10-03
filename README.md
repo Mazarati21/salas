@@ -16,7 +16,7 @@ Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e cr
 
 ## Desenvolvimento
 
-Requer Node.js 24 ou posterior.
+Requer Node.js 20.20 ou posterior.
 
 ```powershell
 npm install
@@ -37,7 +37,7 @@ npm start
 
 No **Setup Node.js App** do cPanel configura:
 
-- Node.js `22.13` ou superior; Node.js 24 é recomendado.
+- Node.js `20.20` ou superior; seleciona a versão mais recente disponibilizada pelo alojamento.
 - Application mode: `Production`.
 - Application root: a pasta do repositório.
 - Application URL: o domínio ou subdomínio escolhido.
@@ -47,6 +47,7 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 
 - `NODE_ENV=production`
 - `APP_HOST=teu-dominio.pt` sem `https://` nem caminho
+- `APP_BASE_PATH=/salas` para publicar em `https://teu-dominio.pt/salas`
 - `TRUST_PROXY=1`
 - `SESSION_SECRET` com pelo menos 32 caracteres aleatórios
 - todas as variáveis `TS_*` com os valores de produção
@@ -63,7 +64,9 @@ Se o cPanel estiver atrás de Cloudflare, ativa a restauração segura do IP rea
 
 O repositório inclui todo o código e o bundle compilado. `.env`, SQLite, sessões, auditoria e cache de ícones estão excluídos pelo `.gitignore`. Depois de associares um remote, o cPanel pode clonar o repositório através de **Git Version Control** e usar essa pasta como Application root.
 
-Um `.cpanel.yml` só deve ser criado depois de saber o caminho absoluto da aplicação, por exemplo `/home/utilizador/apps/legendz`. Um caminho incorreto pode publicar ficheiros na pasta errada.
+O `.cpanel.yml` publica apenas os ficheiros necessários em `/home/legendzc/salas`, instala as dependências de produção no ambiente Node 20 e reinicia o Passenger através de `tmp/restart.txt`. A pasta `data/` não é substituída durante novos deployments.
+
+Nesta conta, o repositório cPanel deve ser clonado para `/home/legendzc/repositories/legendz-salas`. Um cron pode atualizar esse clone a partir do GitHub e iniciar o deployment automaticamente após cada alteração em `main`.
 
 ## Publicação num VPS
 

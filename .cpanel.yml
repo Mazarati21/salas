@@ -1,0 +1,9 @@
+---
+deployment:
+  tasks:
+    - /bin/mkdir -p /home/legendzc/salas/tools /home/legendzc/salas/vendor /home/legendzc/salas/data /home/legendzc/salas/tmp
+    - /bin/cp -f app.js app.jsx index.html package.json package-lock.json server.js styles.css theme.js /home/legendzc/salas/
+    - /bin/cp -f tools/data-store.js tools/teamspeak-query.js /home/legendzc/salas/tools/
+    - /bin/cp -f vendor/react.production.min.js vendor/react-dom.production.min.js /home/legendzc/salas/vendor/
+    - /bin/bash -lc 'source /home/legendzc/nodevenv/salas/20/bin/activate && cd /home/legendzc/salas && npm ci --omit=dev'
+    - /usr/bin/touch /home/legendzc/salas/tmp/restart.txt

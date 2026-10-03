@@ -1,12 +1,12 @@
 const fs = require("fs");
 const path = require("path");
-const { DatabaseSync } = require("node:sqlite");
+const Database = require("better-sqlite3");
 
 class DataStore {
   constructor(dataDir) {
     fs.mkdirSync(dataDir, { recursive: true });
     this.dbPath = path.join(dataDir, "legendz.sqlite");
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = new Database(this.dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec("PRAGMA busy_timeout = 5000");

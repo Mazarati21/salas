@@ -2,6 +2,7 @@ const { useEffect, useMemo, useState } = React;
 
 const THEME_KEY = "legendz-theme";
 const channelNames = ["Convivio 1", "Convivio 2", "Convivio 3", "Convivio 4"];
+const appBasePath = (document.querySelector('meta[name="app-base-path"]')?.content || "").replace(/\/$/, "");
 let csrfToken = "";
 
 function normalizeRoom(room) {
@@ -16,7 +17,7 @@ async function api(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const headers = { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  const response = await fetch(`${appBasePath}${path}`, { credentials: "same-origin", ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
     const error = new Error(payload.error || "Não foi possível concluir o pedido.");

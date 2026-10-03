@@ -11,6 +11,7 @@ const port = Number(process.env.PORT || 5175);
 const isProduction = process.env.NODE_ENV === "production";
 const trustProxy = process.env.TRUST_PROXY === "1";
 const allowedHost = String(process.env.APP_HOST || "").toLowerCase();
+const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH || "/salas");
 const allowApiClients = process.env.ALLOW_API_CLIENTS === "1";
 const cookieSecure = isProduction || process.env.COOKIE_SECURE === "1";
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
@@ -23,6 +24,11 @@ const dataDir = path.join(root, "data");
 const iconsDir = path.join(dataDir, "icons");
 const configuredSecret = String(process.env.SESSION_SECRET || "");
 const sessionSecret = configuredSecret || crypto.randomBytes(32).toString("hex");
+
+function normalizeBasePath(value) {
+  const normalized = `/${String(value || "").trim()}`.replace(/\/+/g, "/").replace(/\/$/, "");
+  return normalized === "/" ? "" : normalized;
+}
 
 if (isProduction && (!allowedHost || !trustProxy || configuredSecret.length < 32)) {
   throw new Error("Produção exige APP_HOST, TRUST_PROXY=1 e SESSION_SECRET com pelo menos 32 caracteres.");
@@ -224,7 +230,7 @@ function userAgentHash(request) {
 function sessionCookie(token, maxAge = Math.floor(sessionLifetimeMs / 1000)) {
   return [
     `legendz_session=${encodeURIComponent(token)}`,
-    "Path=/",
+    `Path=${appBasePath || "/"}`,
     "HttpOnly",
     "SameSite=Strict",
     cookieSecure ? "Secure" : "",
@@ -448,7 +454,7 @@ async function getServerGroupCategories(ts, force = false) {
       sgid: Number(group.sgid),
       name: displayNames.get(Number(group.sgid)) || group.name.trim() || `Grupo ${group.sgid}`,
       iconid: Number(group.iconid || 0),
-      iconUrl: Number(group.iconid || 0) ? `/api/icons/${Number(group.iconid)}` : ""
+      iconUrl: Number(group.iconid || 0) ? `${appBasePath}/api/icons/${Number(group.iconid)}` : ""
     }));
   const byId = new Map(groups.map((group) => [group.sgid, group]));
   allowedIconIds.clear();
@@ -881,10 +887,19 @@ const server = http.createServer((request, response) => {
     sendJson(response, 400, { ok: false, error: "Pedido inválido." });
     return;
   }
-  if (url.pathname.startsWith("/api/")) {
-    handleApi(request, response, url.pathname);
+  let pathname = url.pathname;
+  if (appBasePath && pathname === appBasePath) {
+    response.writeHead(308, { ...securityHeaders(), Location: `${appBasePath}/` });
+    response.end();
+    return;
+  }
+  if (appBasePath && pathname.startsWith(`${appBasePath}/`)) {
+    pathname = pathname.slice(appBasePath.length) || "/";
+  }
+  if (pathname.startsWith("/api/")) {
+    handleApi(request, response, pathname);
   } else {
-    serveStatic(response, url.pathname);
+    serveStatic(response, pathname);
   }
 });
 
