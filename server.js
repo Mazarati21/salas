@@ -928,7 +928,7 @@ function serveStatic(response, pathname) {
   const publicFiles = new Set([
     "index.html", "styles.css", "theme.js", "app.js",
     "vendor/react.production.min.js", "vendor/react-dom.production.min.js",
-    "assets/background-light.png", "assets/background-dark.png"
+    "assets/background-light.png", "assets/background-dark.png", "assets/favicon.svg"
   ]);
   const safePath = pathname === "/" ? "index.html" : pathname.slice(1);
   if (!publicFiles.has(safePath)) {
