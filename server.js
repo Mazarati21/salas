@@ -4,6 +4,7 @@ const net = require("net");
 const path = require("path");
 const crypto = require("crypto");
 const { DataStore } = require("./tools/data-store");
+const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
 
 const root = __dirname;
@@ -42,6 +43,7 @@ const teamSpeak = new TeamSpeakService();
 const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
 let banCache = { expiresAt: 0, bans: [] };
+let statusCache = { expiresAt: 0, metrics: null };
 
 const groupCategories = [
   { key: "jogos", title: "Jogos", limit: 4, sgids: [241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 312, 325, 327, 328, 329, 337, 1265, 172870, 174334] },
@@ -808,18 +810,30 @@ async function getPublicBans() {
   return bans;
 }
 
+async function getPublicServerMetrics() {
+  if (statusCache.expiresAt > Date.now() && statusCache.metrics) return statusCache.metrics;
+
+  const metrics = await withTeamSpeak(async (ts) => {
+    const info = parseItems(await ts.command("obter estado do servidor", "serverinfo"))[0] || {};
+    return publicServerMetrics(info);
+  });
+  statusCache = { expiresAt: Date.now() + 15_000, metrics };
+  return metrics;
+}
+
 async function handleApi(request, response, pathname) {
   try {
     assertRequestAllowed(request, pathname);
 
     if (pathname === "/api/status" && request.method === "GET") {
       let teamSpeakOnline = true;
+      let metrics = null;
       try {
-        await withTeamSpeak((ts) => ts.command("verificar TeamSpeak", "whoami"));
+        metrics = await getPublicServerMetrics();
       } catch {
         teamSpeakOnline = false;
       }
-      sendJson(response, 200, { ok: true, teamSpeakOnline });
+      sendJson(response, 200, { ok: true, teamSpeakOnline, metrics, fetchedAt: Date.now() });
       return;
     }
 
