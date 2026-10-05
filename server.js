@@ -82,13 +82,15 @@ class HttpError extends Error {
 
 function securityHeaders() {
   const headers = {
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cross-Origin-Opener-Policy": "same-origin",
-    "Cross-Origin-Resource-Policy": "same-origin"
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Origin-Agent-Cluster": "?1",
+    "X-Permitted-Cross-Domain-Policies": "none"
   };
   if (isProduction) headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
   return headers;
@@ -113,8 +115,11 @@ function normalizeIp(value) {
 
 function getRequestIp(request) {
   if (trustProxy) {
-    const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0];
-    if (forwarded) return normalizeIp(forwarded);
+    const forwarded = String(request.headers["x-forwarded-for"] || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (forwarded.length) return normalizeIp(forwarded.at(-1));
   }
   return normalizeIp(request.socket.remoteAddress);
 }
@@ -135,7 +140,11 @@ function isAllowedOrigin(request, origin) {
   if (!origin) return false;
   try {
     const parsed = new URL(origin);
-    if (isProduction) return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === allowedHost;
+    if (isProduction) {
+      return parsed.protocol === "https:"
+        && parsed.hostname.toLowerCase() === allowedHost
+        && (!parsed.port || parsed.port === "443");
+    }
     return ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname) && parsed.port === String(port);
   } catch {
     return false;
@@ -156,7 +165,7 @@ function assertRequestAllowed(request, pathname) {
   const unsafe = ["POST", "PATCH", "PUT", "DELETE"].includes(request.method);
   if (unsafe) {
     const contentType = String(request.headers["content-type"] || "").toLowerCase();
-    if (!contentType.startsWith("application/json")) throw new HttpError(415, "O pedido deve usar JSON.");
+    if (!/^application\/json(?:\s*;|$)/.test(contentType)) throw new HttpError(415, "O pedido deve usar JSON.");
 
     const fetchSite = String(request.headers["sec-fetch-site"] || "");
     const origin = String(request.headers.origin || "");
@@ -185,7 +194,7 @@ function readBody(request) {
       if (Buffer.byteLength(body, "utf8") > 25_000) {
         finished = true;
         reject(new HttpError(413, "Pedido demasiado grande."));
-        request.destroy();
+        request.resume();
       }
     });
     request.on("end", () => {
@@ -234,6 +243,7 @@ function sessionCookie(token, maxAge = Math.floor(sessionLifetimeMs / 1000)) {
     `Path=${appBasePath || "/"}`,
     "HttpOnly",
     "SameSite=Strict",
+    "Priority=High",
     cookieSecure ? "Secure" : "",
     `Max-Age=${maxAge}`
   ].filter(Boolean).join("; ");
@@ -249,7 +259,9 @@ function resolveSession(request) {
     store.revokeSession(tokenHash);
     return null;
   }
-  store.touchSession(tokenHash);
+  if (Date.now() - Number(session.last_seen_at || 0) >= 5 * 60 * 1000) {
+    store.touchSession(tokenHash);
+  }
   return { ...session, token, tokenHash, csrfToken: hmac(`csrf:${token}`) };
 }
 

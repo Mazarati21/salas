@@ -388,9 +388,17 @@ class DataStore {
 
   cleanup() {
     const now = Date.now();
-    this.db.prepare("DELETE FROM auth_challenges WHERE expires_at < ? OR used = 1").run(now - 60_000);
-    this.db.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked = 1 AND last_seen_at < ?)").run(now, now - 86_400_000);
-    this.db.prepare("DELETE FROM rate_limits WHERE window_start < ?").run(now - 86_400_000);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM auth_challenges WHERE expires_at < ? OR used = 1").run(now - 60_000);
+      this.db.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked = 1 AND last_seen_at < ?)").run(now, now - 86_400_000);
+      this.db.prepare("DELETE FROM rate_limits WHERE window_start < ?").run(now - 86_400_000);
+      this.db.prepare("DELETE FROM audit_log WHERE created_at < ?").run(now - 180 * 86_400_000);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   close() {

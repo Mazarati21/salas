@@ -39,7 +39,12 @@ function StatusPill({ auth }) {
 }
 
 function ThemeToggle({ theme, onToggle }) {
-  return <button className="theme-toggle" type="button" onClick={onToggle}>{theme === "dark" ? "Modo claro" : "Modo escuro"}</button>;
+  return <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Ativar modo ${theme === "dark" ? "claro" : "escuro"}`}>{theme === "dark" ? "Modo claro" : "Modo escuro"}</button>;
+}
+
+function Message({ message }) {
+  if (!message.text) return null;
+  return <div className={`message is-${message.type}`} role={message.type === "error" ? "alert" : "status"} aria-live={message.type === "error" ? "assertive" : "polite"}>{message.text}</div>;
 }
 
 function AuthPanel({ auth, onAuthenticated }) {
@@ -79,7 +84,7 @@ function AuthPanel({ auth, onAuthenticated }) {
         {candidates.length === 0 && <div className="identity-box is-warning"><span>Nenhum utilizador detetado</span><strong>Liga-te ao TeamSpeak e atualiza a página.</strong></div>}
         <button className="primary-button" type="button" onClick={requestCode} disabled={busy || !auth.teamSpeakOnline || candidates.length === 0 || (candidates.length > 1 && !candidateId)}>{busy ? "A enviar..." : "Enviar código no TeamSpeak"}</button>
       </> : <form className="code-form" onSubmit={verifyCode}><label className="field"><span>Código de acesso</span><input className="code-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus /></label><button className="primary-button" disabled={busy || code.length !== 6}>{busy ? "A validar..." : "Entrar no painel"}</button><button className="text-button" type="button" disabled={busy} onClick={() => { setChallenge(null); setCode(""); setMessage({ text: "", type: "neutral" }); }}>Pedir outro código</button></form>}
-      {message.text && <div className={`message is-${message.type}`}>{message.text}</div>}
+      <Message message={message} />
     </div>
   </section>;
 }
@@ -103,7 +108,7 @@ function GroupsPanel({ sections, selections, setSelections, savedSelections, onA
         return <div className="group-choice" key={`${section.key}-${index}`}><span className="group-icon-slot">{option?.iconUrl ? <img src={option.iconUrl} alt="" loading="lazy" /> : <span className="icon-fallback">{section.title.slice(0, 1)}</span>}</span><select aria-label={`${section.title}, escolha ${index + 1}`} value={selected[index] || ""} onChange={(event) => updateChoice(section, index, event.target.value)} disabled={!enabled}><option value="">Sem escolha</option>{section.options.map((item) => <option key={item.sgid} value={item.sgid} disabled={selected.some((sgid, selectedIndex) => Number(sgid) === item.sgid && selectedIndex !== index)}>{item.name}</option>)}</select></div>;
       })}</div>)}
     </div>
-    <div className="groups-actions"><button className="primary-button" type="button" disabled={!enabled || !dirty || busy || sections.length === 0} onClick={onApply}>{busy ? "A guardar..." : dirty ? "Guardar grupos" : "Grupos atualizados"}</button>{message.text && <div className={`message is-${message.type}`}>{message.text}</div>}</div>
+    <div className="groups-actions"><button className="primary-button" type="button" disabled={!enabled || !dirty || busy || sections.length === 0} onClick={onApply}>{busy ? "A guardar..." : dirty ? "Guardar grupos" : "Grupos atualizados"}</button><Message message={message} /></div>
   </section>;
 }
 
@@ -115,7 +120,7 @@ function CreatorPanel({ enabled, hasActiveRoom, onCreate, message, busy }) {
     const created = await onCreate({ title: title.trim(), channels: channelNames.map((name, index) => ({ name, password: passwords[index].trim() })) });
     if (created) { setTitle(""); setPasswords(["", "", "", ""]); }
   }
-  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>1 sala por utilizador</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Ortigas mais 4" required disabled={!enabled || hasActiveRoom} /></label><div className="password-grid">{channelNames.map((name, index) => <label className="field" key={name}><span>Palavra-passe do {name}</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : "Criar sala"}</button></form>{message.text && <div className={`message is-${message.type}`}>{message.text}</div>}</section>;
+  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>1 sala por utilizador</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Ortigas mais 4" required disabled={!enabled || hasActiveRoom} /></label><div className="password-grid">{channelNames.map((name, index) => <label className="field" key={name}><span>Palavra-passe do {name}</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : "Criar sala"}</button></form><Message message={message} /></section>;
 }
 
 function RoomTree({ room, open, setOpen, onUpdate, onDelete, busy }) {
@@ -146,7 +151,13 @@ function App() {
   const [groupMessage, setGroupMessage] = useState({ text: "", type: "neutral" }), [roomMessage, setRoomMessage] = useState({ text: "", type: "neutral" });
   const [groupsBusy, setGroupsBusy] = useState(false), [roomBusy, setRoomBusy] = useState(false), [roomOpen, setRoomOpen] = useState(false);
   const room = useMemo(() => normalizeRoom(auth.activeRoom), [auth.activeRoom]);
-  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; localStorage.setItem(THEME_KEY, theme); }, [theme]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+    const alternateBackground = new Image();
+    alternateBackground.src = `${appBasePath}/assets/background-${theme === "dark" ? "light" : "dark"}.png?v=2`;
+  }, [theme]);
 
   async function refreshAuth() {
     try { const payload = await api("/api/auth/status"); csrfToken = payload.csrfToken || ""; setAuth({ loading: false, ...payload, activeRoom: normalizeRoom(payload.activeRoom) }); return payload; }
@@ -156,8 +167,11 @@ function App() {
     try { const payload = await api("/api/groups"); setSections(payload.categories || []); setSelections(payload.selected || {}); setSavedSelections(payload.selected || {}); }
     catch (error) { setGroupMessage({ text: error.message, type: "error" }); }
   }
-  async function refreshAll() { const next = await refreshAuth(); if (next?.authenticated && next.connected) await refreshGroups(); }
+  async function refreshAll() { await refreshAuth(); }
   useEffect(() => { refreshAll(); const timer = window.setInterval(refreshAuth, 30000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    if (auth.authenticated && auth.connected) refreshGroups();
+  }, [auth.authenticated, auth.connected]);
 
   async function logout() {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch {}

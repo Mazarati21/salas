@@ -5,7 +5,21 @@ const queryPort = Number(process.env.TS_QUERY_PORT || 10011);
 const voicePort = process.env.TS_VOICE_PORT;
 const user = process.env.TS_USER;
 const pass = process.env.TS_PASS;
-const queryNickname = process.env.TS_QUERY_NICKNAME?.trim() || "LegendZ Salas";
+function truncateNickname(value, maximum = 30) {
+  return Array.from(String(value || "")).slice(0, maximum).join("");
+}
+
+function normalizeQueryNickname(value) {
+  return truncateNickname(String(value || "").trim() || "LegendZ Salas");
+}
+
+function fallbackQueryNickname(value, pid = process.pid, timestamp = Date.now()) {
+  const suffix = `${pid}-${timestamp.toString(36).slice(-4)}`;
+  const base = truncateNickname(normalizeQueryNickname(value), Math.max(1, 30 - suffix.length - 1));
+  return `${base}-${suffix}`;
+}
+
+const queryNickname = normalizeQueryNickname(process.env.TS_QUERY_NICKNAME);
 const quiet = process.env.TS_QUIET === "1";
 
 function assertConfiguration() {
@@ -97,7 +111,7 @@ class TeamSpeakQuery {
       clearTimeout(current.timer);
       const errorLine = response.slice(pos).trim();
       const data = response.slice(0, pos).trim();
-      if (!errorLine.includes("error id=0")) {
+      if (!/^error id=0(?:\s|$)/.test(errorLine)) {
         current.reject(new Error(`${current.label}: ${errorLine}`));
       } else {
         current.resolve(data);
@@ -144,8 +158,7 @@ class TeamSpeakQuery {
 
       // During an app restart, TeamSpeak can retain the previous Query session
       // briefly. Use a unique fallback instead of taking the service offline.
-      const suffix = `${process.pid}-${Date.now().toString(36).slice(-4)}`;
-      const fallbackNickname = `${queryNickname.slice(0, 40)}-${suffix}`;
+      const fallbackNickname = fallbackQueryNickname(queryNickname);
       await this.command(
         "definir nickname alternativo do ServerQuery",
         `clientupdate client_nickname=${tsEscape(fallbackNickname)}`
@@ -216,4 +229,4 @@ class TeamSpeakService {
   }
 }
 
-module.exports = { TeamSpeakService, parseItems, tsEscape };
+module.exports = { TeamSpeakService, fallbackQueryNickname, normalizeQueryNickname, parseItems, tsEscape };
