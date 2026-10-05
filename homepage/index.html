@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="pt">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LegendZ Community</title>
+    <meta name="description" content="Comunidade LegendZ para jogadores, salas TeamSpeak, radio online e ferramentas da comunidade.">
+    <meta name="theme-color" content="#eef1f5">
+    <link rel="icon" href="https://legendzcommunity.com/status/imagens/legendz.png" type="image/png">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        (function () {
+            var savedTheme;
+            try {
+                savedTheme = localStorage.getItem('legendz-theme');
+            } catch (error) {
+                savedTheme = null;
+            }
+
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.dataset.theme = savedTheme || (prefersDark ? 'dark' : 'light');
+        }());
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --page: #eef1f5;
+            --surface: #ffffff;
+            --surface-soft: #f6f7f9;
+            --ink: #121722;
+            --muted: #697386;
+            --line: #d9dee7;
+            --charcoal: #171c26;
+            --charcoal-soft: #232a37;
+            --red: #e52f3c;
+            --red-dark: #bd202c;
+            --green: #16835d;
+            --blue: #2463d4;
+            --shadow: 0 12px 32px rgba(17, 24, 39, .09);
+            --pattern: rgba(20, 29, 44, .045);
+            --line-strong: #c5ccd8;
+            --badge-ink: #394357;
+            --footer-link: #313a4b;
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --page: #10141c;
+            --surface: #191f2a;
+            --surface-soft: #222936;
+            --ink: #f2f5f9;
+            --muted: #aeb8c8;
+            --line: #323b4b;
+            --shadow: 0 14px 34px rgba(0, 0, 0, .28);
+            --pattern: rgba(255, 255, 255, .035);
+            --line-strong: #4b5769;
+            --badge-ink: #dce3ed;
+            --footer-link: #e2e8f0;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            color: var(--ink);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background-color: var(--page);
+            background-image:
+                linear-gradient(var(--pattern) 1px, transparent 1px),
+                linear-gradient(90deg, var(--pattern) 1px, transparent 1px);
+            background-size: 32px 32px;
+            transition: color 180ms ease, background-color 180ms ease;
+        }
+
+        a { color: inherit; }
+
+        a:focus-visible,
+        button:focus-visible,
+        audio:focus-visible {
+            outline: 3px solid rgba(229, 47, 60, .42);
+            outline-offset: 3px;
+        }
+
+        .shell {
+            width: min(1120px, calc(100vw - 40px));
+            margin: 20px auto 28px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+            align-items: center;
+            min-height: 260px;
+            padding: 28px;
+            color: #fff;
+            background: var(--charcoal);
+            border-top: 3px solid var(--red);
+            border-radius: 8px 8px 0 0;
+            box-shadow: var(--shadow);
+        }
+
+        .brand-lockup {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 32px;
+        }
+
+        .theme-toggle {
+            display: grid;
+            width: 40px;
+            height: 40px;
+            margin-left: auto;
+            place-items: center;
+            color: #dce3ed;
+            background: var(--charcoal-soft);
+            border: 1px solid #414b5d;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+        }
+
+        .theme-toggle:hover {
+            color: #fff;
+            background: #2b3444;
+            border-color: #657187;
+        }
+
+        .theme-toggle .fa-sun,
+        :root[data-theme="dark"] .theme-toggle .fa-moon {
+            display: none;
+        }
+
+        :root[data-theme="dark"] .theme-toggle .fa-sun {
+            display: inline-block;
+        }
+
+        .brand-mark {
+            display: grid;
+            width: 48px;
+            height: 48px;
+            place-items: center;
+            color: #fff;
+            background: var(--red);
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 900;
+        }
+
+        .brand-lockup strong {
+            display: block;
+            font-size: 16px;
+        }
+
+        .brand-lockup span,
+        .eyebrow {
+            color: #8a96a9;
+            font-size: 10px;
+            font-weight: 850;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .hero h1 {
+            max-width: 720px;
+            margin: 0;
+            font-size: clamp(38px, 6vw, 72px);
+            line-height: .96;
+            letter-spacing: 0;
+        }
+
+        .hero-copy {
+            max-width: 620px;
+            margin: 18px 0 0;
+            color: #c4ccd8;
+            font-size: 16px;
+            line-height: 1.65;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 26px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            min-height: 44px;
+            padding: 0 16px;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 850;
+            text-decoration: none;
+            transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+        }
+
+        .button.primary {
+            color: #fff;
+            background: var(--red);
+        }
+
+        .button.primary:hover {
+            background: var(--red-dark);
+        }
+
+        .button.secondary {
+            color: #dce3ed;
+            background: var(--charcoal-soft);
+            border-color: #363f50;
+        }
+
+        .button.secondary:hover {
+            background: #2b3444;
+            border-color: #596578;
+        }
+
+        .signal-card {
+            width: min(330px, 100%);
+            padding: 18px;
+            background: var(--charcoal-soft);
+            border: 1px solid #363f50;
+            border-radius: 8px;
+        }
+
+        .signal-card .eyebrow {
+            margin: 0 0 10px;
+        }
+
+        .signal-row {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 12px 0;
+            border-top: 1px solid #363f50;
+        }
+
+        .signal-row:first-of-type {
+            border-top: 0;
+        }
+
+        .signal-row i {
+            display: grid;
+            width: 34px;
+            height: 34px;
+            place-items: center;
+            color: #fff;
+            background: var(--red);
+            border-radius: 6px;
+        }
+
+        .signal-row strong,
+        .signal-row span {
+            display: block;
+        }
+
+        .signal-row span {
+            margin-top: 2px;
+            color: #aeb8c8;
+            font-size: 12px;
+        }
+
+        .intro-bar {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            align-items: center;
+            min-height: 86px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-top: 0;
+            border-radius: 0 0 8px 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .intro-bar > div {
+            display: grid;
+            grid-template-columns: 38px minmax(0, 1fr);
+            align-items: center;
+            gap: 11px;
+            min-width: 0;
+            padding: 15px 18px;
+            border-right: 1px solid var(--line);
+        }
+
+        .intro-bar > div:last-child {
+            border-right: 0;
+        }
+
+        .metric-icon {
+            display: grid;
+            width: 38px;
+            height: 38px;
+            place-items: center;
+            color: var(--red);
+            background: var(--surface-soft);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+        }
+
+        .metric-copy {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .intro-bar strong {
+            font-size: 18px;
+            line-height: 1.1;
+        }
+
+        .intro-bar span {
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .panel {
+            overflow: hidden;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .panel-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 74px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-top h2 {
+            margin: 0;
+            font-size: 20px;
+            line-height: 1.15;
+        }
+
+        .badge {
+            padding: 7px 9px;
+            color: var(--badge-ink);
+            background: var(--surface-soft);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 750;
+        }
+
+        .panel-body {
+            padding: 18px;
+        }
+
+        .panel-body p {
+            margin: 0 0 14px;
+            color: var(--muted);
+            line-height: 1.65;
+        }
+
+        .panel-body p:last-child {
+            margin-bottom: 0;
+        }
+
+        .radio-panel audio {
+            width: 100%;
+            min-height: 42px;
+        }
+
+        .now-playing {
+            display: grid;
+            grid-template-columns: 58px minmax(0, 1fr);
+            gap: 13px;
+            align-items: center;
+            min-height: 58px;
+            margin-bottom: 16px;
+        }
+
+        .track-cover {
+            position: relative;
+            display: grid;
+            width: 58px;
+            height: 58px;
+            place-items: center;
+            overflow: hidden;
+            color: #fff;
+            background: var(--charcoal);
+            border-radius: 6px;
+        }
+
+        .track-cover img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .track-cover.has-cover i {
+            display: none;
+        }
+
+        .track-copy {
+            min-width: 0;
+        }
+
+        .track-copy span,
+        .track-copy strong {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .track-copy > span:first-child {
+            margin-bottom: 3px;
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .track-copy strong {
+            font-size: 15px;
+        }
+
+        .track-copy .track-artist {
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .radio-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .radio-state::before {
+            width: 7px;
+            height: 7px;
+            background: var(--muted);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .radio-state.is-live::before {
+            background: var(--green);
+            box-shadow: 0 0 0 4px rgba(22, 131, 93, .14);
+        }
+
+        .links {
+            display: grid;
+            gap: 10px;
+        }
+
+        .link-card {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            min-height: 64px;
+            padding: 12px;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            text-decoration: none;
+            transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+        }
+
+        .link-card:hover {
+            background: var(--surface-soft);
+            border-color: var(--line-strong);
+            transform: translateY(-1px);
+        }
+
+        .link-card i:first-child {
+            display: grid;
+            width: 42px;
+            height: 42px;
+            place-items: center;
+            color: #fff;
+            background: var(--charcoal);
+            border-radius: 6px;
+        }
+
+        .link-card strong,
+        .link-card span {
+            display: block;
+        }
+
+        .link-card span {
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .footer {
+            margin-top: 18px;
+            padding: 16px 18px;
+            color: #7c8799;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .footer a {
+            color: var(--footer-link);
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--red);
+            text-decoration: underline;
+        }
+
+        .heart {
+            color: var(--red);
+            font-weight: 900;
+        }
+
+        @media (max-width: 900px) {
+            .shell {
+                width: min(100% - 24px, 760px);
+                margin-top: 12px;
+            }
+
+            .hero,
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .signal-card {
+                width: 100%;
+            }
+
+            .intro-bar {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .intro-bar > div:nth-child(2) { border-right: 0; }
+            .intro-bar > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+        }
+
+        @media (max-width: 560px) {
+            .shell {
+                width: 100%;
+                margin: 0;
+            }
+
+            .hero,
+            .intro-bar,
+            .panel {
+                border-radius: 0;
+            }
+
+            .hero {
+                padding: 22px 16px;
+            }
+
+            .brand-lockup {
+                margin-bottom: 24px;
+            }
+
+            .intro-bar {
+                grid-template-columns: 1fr;
+            }
+
+            .intro-bar > div {
+                padding: 12px 16px;
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .intro-bar > div:last-child { border-bottom: 0; }
+
+            .grid {
+                gap: 10px;
+                margin-top: 10px;
+            }
+
+            .panel-top {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .hero-actions {
+                flex-direction: column;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                scroll-behavior: auto !important;
+                transition-duration: .01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <section class="hero">
+            <div>
+                <div class="brand-lockup">
+                    <div class="brand-mark" aria-hidden="true">LZ</div>
+                    <div>
+                        <strong>LegendZ Community</strong>
+                        <span>Vers&atilde;o 2.0</span>
+                    </div>
+                    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Ativar modo escuro" title="Alternar tema">
+                        <i class="fa-solid fa-moon" aria-hidden="true"></i>
+                        <i class="fa-solid fa-sun" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <h1>Comunidade TeamSpeak para jogar sem complica&ccedil;&otilde;es.</h1>
+                <p class="hero-copy">Entra nas salas, fala com a malta e acompanha as ferramentas da comunidade num s&oacute; s&iacute;tio.</p>
+                <div class="hero-actions">
+                    <a class="button primary" href="ts3server://ts.legendzcommunity.com">
+                        <i class="fa-solid fa-headset"></i>
+                        Conectar ao TeamSpeak
+                    </a>
+                    <a class="button secondary" href="https://legendzcommunity.com/salas/">
+                        <i class="fa-solid fa-door-open"></i>
+                        Painel de Salas
+                    </a>
+                </div>
+            </div>
+
+            <aside class="signal-card" aria-label="Informacao rapida">
+                <p class="eyebrow">Acesso rapido</p>
+                <div class="signal-row">
+                    <i class="fa-solid fa-server"></i>
+                    <div>
+                        <strong>TeamSpeak</strong>
+                        <span>ts.legendzcommunity.com</span>
+                    </div>
+                </div>
+                <div class="signal-row">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <div>
+                        <strong>Ambiente seguro</strong>
+                        <span>Comunidade moderada e organizada</span>
+                    </div>
+                </div>
+                <div class="signal-row">
+                    <i class="fa-solid fa-users"></i>
+                    <div>
+                        <strong>Salas dinamicas</strong>
+                        <span>Cria e gere salas em /salas</span>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <section class="intro-bar" aria-label="Estado atual do servidor">
+            <div>
+                <i class="metric-icon fa-solid fa-users" aria-hidden="true"></i>
+                <span class="metric-copy">
+                    <strong>13/50</strong>
+                    <span>Slots ocupados</span>
+                </span>
+            </div>
+            <div>
+                <i class="metric-icon fa-solid fa-clock" aria-hidden="true"></i>
+                <span class="metric-copy">
+                    <strong>37 dias</strong>
+                    <span>Uptime do servidor</span>
+                </span>
+            </div>
+            <div>
+                <i class="metric-icon fa-solid fa-download" aria-hidden="true"></i>
+                <span class="metric-copy">
+                    <strong>30.57 GB</strong>
+                    <span>Download</span>
+                </span>
+            </div>
+            <div>
+                <i class="metric-icon fa-solid fa-upload" aria-hidden="true"></i>
+                <span class="metric-copy">
+                    <strong>55.03 GB</strong>
+                    <span>Upload</span>
+                </span>
+            </div>
+        </section>
+
+        <section class="grid">
+            <div class="panel">
+                <div class="panel-top">
+                    <h2>Sobre N&oacute;s</h2>
+                    <span class="badge">Gaming community</span>
+                </div>
+                <div class="panel-body">
+                    <p>Somos uma comunidade de jogadores que partilham a mesma paix&atilde;o por videojogos. Oferecemos um ambiente seguro e amig&aacute;vel onde podes conectar-te com outros jogadores e desfrutar dos teus jogos favoritos.</p>
+                    <p>O nosso TeamSpeak &eacute; o lugar perfeito para conversares com os teus amigos e colegas de equipa durante os jogos. Temos uma variedade de canais para jogos diferentes, para que encontres sempre algu&eacute;m para jogar.</p>
+                </div>
+            </div>
+
+            <div class="panel radio-panel">
+                <div class="panel-top">
+                    <h2>R&aacute;dio Online</h2>
+                    <span class="badge radio-state" id="radio-state" aria-live="polite">A ligar</span>
+                </div>
+                <div class="panel-body">
+                    <div class="now-playing" aria-live="polite">
+                        <div class="track-cover" id="track-cover" aria-hidden="true">
+                            <i class="fa-solid fa-music"></i>
+                            <img id="track-cover-image" alt="" hidden>
+                        </div>
+                        <div class="track-copy">
+                            <span>A tocar agora</span>
+                            <strong id="track-title">A obter m&uacute;sica...</strong>
+                            <span class="track-artist" id="track-artist">Hunter FM Pop</span>
+                        </div>
+                    </div>
+                    <audio id="myaudio" controls preload="auto" aria-label="R&aacute;dio online Hunter FM">
+                        <source src="https://live.hunter.fm/pop_high?origin=/live" type="audio/mpeg">
+                        O teu navegador n&atilde;o suporta o elemento de &aacute;udio.
+                    </audio>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid">
+            <div class="panel">
+                <div class="panel-top">
+                    <h2>Links &Uacute;teis</h2>
+                    <span class="badge">LegendZ</span>
+                </div>
+                <div class="panel-body links">
+                    <a class="link-card" href="https://legendzcommunity.com/salas/">
+                        <i class="fa-solid fa-door-open"></i>
+                        <span>
+                            <strong>Painel de Salas</strong>
+                            <span>Criar salas, gerir nomes e passwords</span>
+                        </span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </a>
+                    <a class="link-card" href="https://legendzcommunity.com/status">
+                        <i class="fa-solid fa-signal"></i>
+                        <span>
+                            <strong>Status do TeamSpeak</strong>
+                            <span>Verificar disponibilidade do servidor</span>
+                        </span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </a>
+                    <a class="link-card" href="https://steamcommunity.com/groups/LegendZCommunity">
+                        <i class="fa-brands fa-steam"></i>
+                        <span>
+                            <strong>Grupo Steam</strong>
+                            <span>Segue a comunidade na Steam</span>
+                        </span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </a>
+                    <a class="link-card" href="https://legendzcommunity.com/bans/">
+                        <i class="fa-solid fa-ban"></i>
+                        <span>
+                            <strong>Lista de Bans</strong>
+                            <span>Consulta informa&ccedil;&atilde;o disciplinar</span>
+                        </span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-top">
+                    <h2>Entrar agora</h2>
+                    <span class="badge">TeamSpeak</span>
+                </div>
+                <div class="panel-body">
+                    <p>O acesso principal continua a ser feito pelo TeamSpeak. Se quiseres criar uma sala permanente para o teu grupo, usa o painel de salas e autentica-te com o nome que tens ligado no servidor.</p>
+                    <a class="button primary" href="ts3server://ts.legendzcommunity.com">
+                        <i class="fa-solid fa-headset"></i>
+                        Abrir TeamSpeak
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            Copyright &copy; 2026 realizado com <span class="heart">&hearts;</span> por
+            <a href="https://steamcommunity.com/id/mazarati21">Mazarati</a> |
+            <a href="https://legendzcommunity.com/">legendzcommunity.com</a>
+        </footer>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var audio = document.getElementById('myaudio');
+            var radioState = document.getElementById('radio-state');
+            var trackTitle = document.getElementById('track-title');
+            var trackArtist = document.getElementById('track-artist');
+            var trackCover = document.getElementById('track-cover');
+            var trackCoverImage = document.getElementById('track-cover-image');
+            var themeToggle = document.getElementById('theme-toggle');
+            var themeMeta = document.querySelector('meta[name="theme-color"]');
+
+            function applyTheme(theme) {
+                var isDark = theme === 'dark';
+                document.documentElement.dataset.theme = theme;
+                themeToggle.setAttribute('aria-label', isDark ? 'Ativar modo claro' : 'Ativar modo escuro');
+                themeToggle.setAttribute('aria-pressed', String(isDark));
+                if (themeMeta) {
+                    themeMeta.setAttribute('content', isDark ? '#10141c' : '#eef1f5');
+                }
+            }
+
+            applyTheme(document.documentElement.dataset.theme || 'light');
+
+            themeToggle.addEventListener('click', function () {
+                var nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+                applyTheme(nextTheme);
+                try {
+                    localStorage.setItem('legendz-theme', nextTheme);
+                } catch (error) {
+                    // The selected theme still applies for the current visit.
+                }
+            });
+
+            function setRadioState(label, isLive) {
+                if (!radioState) {
+                    return;
+                }
+                radioState.textContent = label;
+                radioState.classList.toggle('is-live', Boolean(isLive));
+            }
+
+            function updateTrack() {
+                fetch('https://api.hunter.fm/stations/live', {
+                    cache: 'no-store',
+                    headers: {
+                        'X-API-Version': 'v1',
+                        'X-Platform': 'web'
+                    }
+                })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            throw new Error('Metadata request failed');
+                        }
+                        return response.json();
+                    })
+                    .then(function (stations) {
+                        var popStation = Array.isArray(stations) && stations.find(function (station) {
+                            return station.url === 'pop';
+                        });
+                        var current = popStation && popStation.live && popStation.live.now;
+
+                        if (!current || !current.name) {
+                            throw new Error('No current track');
+                        }
+
+                        trackTitle.textContent = current.name;
+                        trackArtist.textContent = Array.isArray(current.singers) ? current.singers.join(', ') : (current.singers || 'Hunter FM Pop');
+
+                        if (current.hashThumb) {
+                            trackCoverImage.onload = function () {
+                                trackCoverImage.hidden = false;
+                                trackCover.classList.add('has-cover');
+                            };
+                            trackCoverImage.onerror = function () {
+                                trackCoverImage.hidden = true;
+                                trackCover.classList.remove('has-cover');
+                            };
+                            trackCoverImage.src = 'https://cdn.hunter.fm/image/thumb/music/' + encodeURIComponent(current.hashThumb) + '/100x100ht.jpg';
+                        }
+                    })
+                    .catch(function () {
+                        trackTitle.textContent = 'Informa\u00e7\u00e3o indispon\u00edvel';
+                        trackArtist.textContent = 'Hunter FM Pop';
+                        trackCoverImage.hidden = true;
+                        trackCover.classList.remove('has-cover');
+                    });
+            }
+
+            if (audio) {
+                audio.volume = 0.05;
+
+                function removeStartListeners() {
+                    document.removeEventListener('click', startAfterInteraction, true);
+                    document.removeEventListener('keydown', startAfterInteraction, true);
+                }
+
+                function startAfterInteraction(event) {
+                    if (event.target === audio || (event.target.closest && event.target.closest('audio'))) {
+                        return;
+                    }
+                    removeStartListeners();
+                    audio.play().catch(function () {
+                        setRadioState('Clica para ouvir', false);
+                    });
+                }
+
+                function enableStartOnInteraction() {
+                    document.addEventListener('click', startAfterInteraction, true);
+                    document.addEventListener('keydown', startAfterInteraction, true);
+                }
+
+                audio.addEventListener('playing', function () {
+                    removeStartListeners();
+                    setRadioState('Ao vivo', true);
+                });
+                audio.addEventListener('waiting', function () {
+                    setRadioState('A ligar', false);
+                });
+                audio.addEventListener('pause', function () {
+                    setRadioState('Em pausa', false);
+                });
+                audio.addEventListener('error', function () {
+                    removeStartListeners();
+                    setRadioState('Indispon\u00edvel', false);
+                });
+
+                var autoplayAttempt = audio.play();
+                if (autoplayAttempt && typeof autoplayAttempt.catch === 'function') {
+                    autoplayAttempt.catch(function () {
+                        setRadioState('Clica para ouvir', false);
+                        enableStartOnInteraction();
+                    });
+                }
+            }
+
+            updateTrack();
+            window.setInterval(updateTrack, 30000);
+        });
+    </script>
+</body>
+</html>

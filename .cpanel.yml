@@ -7,5 +7,6 @@ deployment:
     - /bin/cp -f tools/data-store.js tools/teamspeak-query.js /home/legendzc/salas/tools/
     - /bin/cp -f vendor/react.production.min.js vendor/react-dom.production.min.js /home/legendzc/salas/vendor/
     - /bin/cp -f assets/background-light.png assets/background-dark.png assets/favicon.svg /home/legendzc/salas/assets/
+    - /bin/cp -f homepage/index.html /home/legendzc/public_html/index.html
     - /bin/bash -lc 'source /home/legendzc/nodevenv/salas/20/bin/activate && cd /home/legendzc/salas && npm ci --omit=dev'
     - /usr/bin/touch /home/legendzc/salas/tmp/restart.txt
