@@ -47,6 +47,40 @@ function Message({ message }) {
   return <div className={`message is-${message.type}`} role={message.type === "error" ? "alert" : "status"} aria-live={message.type === "error" ? "assertive" : "polite"}>{message.text}</div>;
 }
 
+function profileInitials(nickname) {
+  const words = String(nickname || "TS").trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  return Array.from(words[0] || "TS").slice(0, 2).join("").toUpperCase();
+}
+
+function ProfilePanel({ auth, room, sections, selections }) {
+  const selectedGroups = useMemo(() => sections.flatMap((section) => {
+    const selected = new Set((selections[section.key] || []).map(Number));
+    return section.options.filter((option) => selected.has(Number(option.sgid)));
+  }), [sections, selections]);
+  const visibleGroups = selectedGroups.slice(0, 6);
+  const hiddenCount = Math.max(0, selectedGroups.length - visibleGroups.length);
+  const nickname = auth.user?.nickname || "Utilizador";
+
+  return <section className="panel profile-panel" aria-labelledby="profile-title">
+    <div className="profile-body">
+      <div className="profile-identity">
+        <span className="profile-avatar" aria-hidden="true">{profileInitials(nickname)}</span>
+        <div className="profile-name"><p className="eyebrow">Perfil TeamSpeak</p><h2 id="profile-title">{nickname}</h2><span className={`profile-connection ${auth.connected ? "is-connected" : "is-disconnected"}`}>{auth.connected ? "Ligado ao servidor" : "Desligado do servidor"}</span></div>
+      </div>
+      <div className="profile-facts">
+        <div><span>Grupos ativos</span><strong>{selectedGroups.length}</strong></div>
+        <div><span>Sala permanente</span><strong title={room?.title || ""}>{room?.title || "Sem sala"}</strong></div>
+      </div>
+      <div className="profile-groups" aria-label="Grupos TeamSpeak ativos">
+        {visibleGroups.map((group) => <span className="profile-group" key={group.sgid}>{group.iconUrl ? <img src={group.iconUrl} alt="" loading="lazy" /> : <span className="profile-group-fallback" aria-hidden="true">{group.name.slice(0, 1)}</span>}<span>{group.name}</span></span>)}
+        {hiddenCount > 0 && <span className="profile-more">+{hiddenCount}</span>}
+        {selectedGroups.length === 0 && <span className="profile-empty">Ainda não tens grupos selecionados.</span>}
+      </div>
+    </div>
+  </section>;
+}
+
 function AuthPanel({ auth, onAuthenticated }) {
   const [candidateId, setCandidateId] = useState("");
   const [challenge, setChallenge] = useState(null);
@@ -204,7 +238,7 @@ function App() {
     <section className="intro-bar" aria-label="Resumo do painel"><div><strong>4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
     {!auth.loading && !auth.authenticated && <AuthPanel auth={auth} onAuthenticated={refreshAll} />}
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
-    {auth.authenticated && <div className="dashboard"><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} /></div></div>}
+    {auth.authenticated && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} /></div></div>}
     <Footer />
   </main>;
 }
