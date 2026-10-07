@@ -58,3 +58,22 @@ test("rate limits survive individual requests", () => withStore((store) => {
   assert.equal(store.incrementRateLimit("test:ip", 60_000), 1);
   assert.equal(store.incrementRateLimit("test:ip", 60_000), 2);
 }));
+
+test("builds an administrative snapshot without session secrets", () => withStore((store) => {
+  const now = Date.now();
+  store.insertRoom(sampleRoom());
+  store.createSession({ tokenHash: "private-hash", databaseId: 42, nickname: "Tester", uniqueId: "private-uid", ip: "127.0.0.1", userAgentHash: "private-ua", createdAt: now, expiresAt: now + 60_000 });
+  store.audit({ databaseId: 42, nickname: "Tester", ip: "127.0.0.1", action: "room.create", success: true });
+  store.audit({ ip: "127.0.0.1", action: "auth.verify", success: false, details: { status: 403, message: "Código inválido" } });
+  store.incrementRateLimit("verify:127.0.0.1", 60_000);
+
+  const snapshot = store.getAdminSnapshot(now);
+  assert.equal(snapshot.rooms.length, 1);
+  assert.equal(snapshot.activeSessions.length, 1);
+  assert.equal(snapshot.activeSessions[0].nickname, "Tester");
+  assert.equal("tokenHash" in snapshot.activeSessions[0], false);
+  assert.equal("uniqueId" in snapshot.activeSessions[0], false);
+  assert.equal(snapshot.security.failures24h, 1);
+  assert.equal(snapshot.security.authFailures24h, 1);
+  assert.equal(snapshot.audit[0].details.message, "Código inválido");
+}));

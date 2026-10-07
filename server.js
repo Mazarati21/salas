@@ -3,6 +3,7 @@ const fs = require("fs");
 const net = require("net");
 const path = require("path");
 const crypto = require("crypto");
+const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-utils");
 const { DataStore } = require("./tools/data-store");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
@@ -19,6 +20,7 @@ const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const challengeLifetimeMs = 5 * 60 * 1000;
 const tempSpacerCid = Number(process.env.TS_TEMP_SPACER_CID || 902);
 const channelAdminGroupId = Number(process.env.TS_CHANNEL_ADMIN_GROUP_ID || 49);
+const adminGroupIds = new Set(String(process.env.TS_ADMIN_GROUP_IDS || "6").split(",").map(Number).filter(Number.isFinite));
 const protectedThinSeparatorCid = Number(process.env.TS_PROTECTED_THIN_CID || 33738);
 const protectedThinSeparatorName = process.env.TS_PROTECTED_THIN_NAME || "[*spacer252f6c22]━";
 const dataDir = path.join(root, "data");
@@ -280,6 +282,10 @@ function publicUser(source) {
   return source ? { databaseId: Number(source.database_id || source.databaseId), nickname: source.nickname } : null;
 }
 
+function isAdminClient(client) {
+  return hasAdminGroup(client?.serverGroups, adminGroupIds);
+}
+
 function withTeamSpeak(work) {
   return teamSpeak.run(work);
 }
@@ -321,6 +327,12 @@ async function getSessionClient(ts, session, includeGroups = false) {
     uniqueId: client.client_unique_identifier,
     serverGroups: String(client.client_servergroups || "").split(",").map(Number).filter(Boolean)
   };
+}
+
+async function requireAdmin(ts, session) {
+  const client = await getSessionClient(ts, session, true);
+  if (!isAdminClient(client)) throw new HttpError(403, "Esta área está reservada aos administradores do TeamSpeak.");
+  return { session, client };
 }
 
 async function startAuthChallenge(request, payload) {
@@ -746,10 +758,12 @@ async function authenticationStatus(request) {
   }
 
   let connected = false;
+  let isAdmin = false;
   let teamSpeakOnline = true;
   try {
     await withTeamSpeak(async (ts) => {
-      await getSessionClient(ts, session);
+      const client = await getSessionClient(ts, session, true);
+      isAdmin = isAdminClient(client);
       await reconcileRooms(ts);
       connected = true;
     });
@@ -762,6 +776,7 @@ async function authenticationStatus(request) {
     authenticated: true,
     teamSpeakOnline,
     connected,
+    isAdmin,
     csrfToken: session.csrfToken,
     user: publicUser(session),
     activeRoom: serializeRoom(activeRoom)
@@ -821,6 +836,70 @@ async function getPublicServerMetrics() {
   return metrics;
 }
 
+function cleanAuditDetails(details) {
+  if (!details || typeof details !== "object") return null;
+  return {
+    status: Number(details.status) || null,
+    message: cleanPublicText(details.message, "Sem detalhes", 180)
+  };
+}
+
+async function getAdminOverview(request) {
+  const session = requireSession(request);
+  const teamSpeakState = await withTeamSpeak(async (ts) => {
+    await requireAdmin(ts, session);
+    const startedAt = Date.now();
+    const info = await ts.command("estado administrativo do servidor", "serverinfo");
+    const channels = await ts.command("canais administrativos", "channellist");
+    return {
+      metrics: publicServerMetrics(parseItems(info)[0] || {}),
+      channelIds: new Set(parseItems(channels).map((channel) => Number(channel.cid))),
+      latencyMs: Date.now() - startedAt
+    };
+  });
+  const snapshot = store.getAdminSnapshot();
+  const rooms = snapshot.rooms.map((room) => ({
+    id: room.id,
+    title: room.title,
+    creator: { databaseId: room.creatorDatabaseId, nickname: room.creatorNickname },
+    createdAt: room.createdAt,
+    updatedAt: room.updatedAt,
+    channelCount: room.channels.length + 1,
+    synchronized: [room.teamspeak.topLineCid, room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)]
+      .every((cid) => teamSpeakState.channelIds.has(Number(cid)))
+  }));
+  let databaseBytes = 0;
+  try { databaseBytes = fs.statSync(store.dbPath).size; } catch {}
+
+  return {
+    administrator: publicUser(session),
+    fetchedAt: Date.now(),
+    health: {
+      queryOnline: true,
+      queryLatencyMs: teamSpeakState.latencyMs,
+      processUptimeSeconds: Math.floor(process.uptime()),
+      databaseBytes,
+      teamSpeak: teamSpeakState.metrics
+    },
+    counts: {
+      activeRooms: rooms.length,
+      activeSessions: snapshot.activeSessions.length,
+      failures24h: snapshot.security.failures24h,
+      authFailures24h: snapshot.security.authFailures24h,
+      unsynchronizedRooms: rooms.filter((room) => !room.synchronized).length
+    },
+    rooms,
+    sessions: snapshot.activeSessions.map((item) => ({ ...item, ip: maskIp(item.ip) })),
+    audit: snapshot.audit.map((item) => ({
+      ...item,
+      target: item.action.startsWith("auth.") ? null : item.target,
+      ip: maskIp(item.ip),
+      details: cleanAuditDetails(item.details)
+    })),
+    busiestBuckets: snapshot.security.busiestBuckets.map((item) => ({ ...sanitizeRateBucket(item.bucket), count: item.count }))
+  };
+}
+
 async function handleApi(request, response, pathname) {
   try {
     assertRequestAllowed(request, pathname);
@@ -844,6 +923,11 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/auth/status" && request.method === "GET") {
       sendJson(response, 200, { ok: true, ...(await authenticationStatus(request)) });
+      return;
+    }
+
+    if (pathname === "/api/admin/overview" && request.method === "GET") {
+      sendJson(response, 200, { ok: true, ...(await getAdminOverview(request)) });
       return;
     }
 

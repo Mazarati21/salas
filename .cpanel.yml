@@ -5,7 +5,7 @@ deployment:
     - /usr/bin/touch /home/legendzc/public_html/salas/.htaccess
     - /bin/cp -f app.js app.jsx index.html package.json package-lock.json server.js styles.css theme.js /home/legendzc/salas/
     - /bin/cp -f tools/data-store.js tools/teamspeak-query.js /home/legendzc/salas/tools/
-    - /bin/cp -f tools/server-metrics.js /home/legendzc/salas/tools/
+    - /bin/cp -f tools/admin-utils.js tools/server-metrics.js /home/legendzc/salas/tools/
     - /bin/cp -f vendor/react.production.min.js vendor/react-dom.production.min.js /home/legendzc/salas/vendor/
     - /bin/cp -f assets/background-light.png assets/background-dark.png assets/favicon.svg /home/legendzc/salas/assets/
     - /bin/cp -f homepage/index.html /home/legendzc/public_html/index.html

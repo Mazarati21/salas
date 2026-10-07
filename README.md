@@ -11,7 +11,8 @@ Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e cr
 - Palavra-passe independente por subsala, com ações explícitas para manter, alterar ou remover.
 - Ligação ServerQuery persistente, serializada e com reconexão automática.
 - Grupos permitidos definidos no servidor; `Membro` e grupos internos não são expostos.
-- SQLite em WAL para salas, sessões, desafios, limites e auditoria.
+- SQLite persistente para salas, sessões, desafios, limites e auditoria.
+- Área administrativa de leitura para Server Admins, com saúde do serviço, sessões anonimizadas, sincronização de salas e auditoria recente.
 - Tema claro e escuro, layout responsivo e ícones reais do TeamSpeak.
 
 ## Desenvolvimento
@@ -51,6 +52,7 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 - `TRUST_PROXY=1`
 - `SESSION_SECRET` com pelo menos 32 caracteres aleatórios
 - todas as variáveis `TS_*` com os valores de produção
+- `TS_ADMIN_GROUP_IDS=6`, ou uma lista separada por vírgulas com os IDs dos grupos autorizados a abrir a área administrativa
 
 Não cries `ALLOW_LOCAL_QUERY_OWNER_FALLBACK` em produção. O cPanel fornece `PORT` automaticamente; utiliza esse valor em vez de fixar uma porta manualmente.
 
@@ -69,6 +71,12 @@ O `.cpanel.yml` publica apenas os ficheiros necessários em `/home/legendzc/sala
 Nesta conta, o repositório cPanel deve ser clonado para `/home/legendzc/repositories/legendz-salas`. Um cron pode atualizar esse clone a partir do GitHub e iniciar o deployment automaticamente após cada alteração em `main`.
 
 O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a API de deployment do cPanel apenas quando o commit remoto mudou.
+
+### Área administrativa
+
+A vista **Administração** só aparece quando o utilizador autenticado está ligado ao TeamSpeak e pertence a um dos grupos definidos em `TS_ADMIN_GROUP_IDS`. A API volta a confirmar o grupo no TeamSpeak em cada acesso, pelo que esconder o botão no browser não é a barreira de segurança.
+
+Esta primeira versão é deliberadamente só de leitura. Não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos. Mostra apenas métricas operacionais, salas, sessões ativas anonimizadas e os 60 eventos de auditoria mais recentes.
 
 ## Publicação num VPS
 

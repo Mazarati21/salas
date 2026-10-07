@@ -174,6 +174,89 @@ function RoomCard({ room, isOpen, setOpen, onUpdate, onDelete, busy }) {
   return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"}</small></button><ul className="channel-list">{room.channels.map((channel) => <li key={channel.name}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required /></label>{channelNames.map((name, index) => <div className="password-editor" key={name}><label className="field"><span>{name}</span><select value={actions[index]} onChange={(event) => { const next = [...actions]; next[index] = event.target.value; setActions(next); }}><option value="keep">{room.channels[index]?.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{room.channels[index]?.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{room.channels[index]?.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{actions[index] === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" required placeholder="Até 24 caracteres" /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={busy} onClick={() => window.confirm("Apagar esta sala e as quatro subsalas do TeamSpeak?") && onDelete(room)}>Apagar sala</button></div></form>}</article>;
 }
 
+const auditLabels = {
+  "auth.challenge": "Código solicitado",
+  "auth.verify": "Autenticação",
+  "auth.logout": "Sessão terminada",
+  "groups.update": "Grupos alterados",
+  "room.create": "Sala criada",
+  "room.update": "Sala alterada",
+  "room.delete": "Sala apagada"
+};
+
+function formatDate(value) {
+  if (!value) return "Indisponível";
+  return new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
+  return `${(bytes / (1024 ** (unit + 1))).toFixed(unit > 0 ? 1 : 0)} ${units[unit]}`;
+}
+
+function formatDuration(value) {
+  const seconds = Math.max(0, Number(value) || 0);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days) return `${days} d ${hours} h`;
+  if (hours) return `${hours} h ${minutes} min`;
+  return `${minutes} min`;
+}
+
+function AdminDashboard({ data, busy, error, onRefresh }) {
+  if (!data && busy) return <section className="panel loading-panel admin-loading"><span className="loader" /><strong>A recolher dados de segurança...</strong></section>;
+  if (!data) return <section className="panel admin-unavailable"><p className="eyebrow">Administração</p><h2>Não foi possível abrir a supervisão</h2><p>{error || "Volta a tentar dentro de alguns instantes."}</p><button className="primary-button" type="button" onClick={() => onRefresh(true)}>Tentar novamente</button></section>;
+
+  const teamSpeak = data.health?.teamSpeak || {};
+  return <div className="admin-dashboard">
+    <section className="admin-heading" aria-labelledby="admin-title">
+      <div><p className="eyebrow">Área reservada</p><h2 id="admin-title">Administração e segurança</h2><p>Supervisão em modo de leitura. Os endereços de rede aparecem anonimizados.</p></div>
+      <div className="admin-heading-actions"><span className="readonly-badge">Só leitura</span><button className="refresh-button" type="button" onClick={() => onRefresh(true)} disabled={busy}>{busy ? "A atualizar..." : "Atualizar dados"}</button></div>
+    </section>
+    {error && <div className="admin-warning" role="status">{error} A mostrar os últimos dados disponíveis.</div>}
+    <section className="metric-strip" aria-label="Resumo administrativo">
+      <div><span className="metric-dot is-good" /><strong>{data.health?.queryLatencyMs ?? "-"} ms</strong><small>Resposta Query</small></div>
+      <div><span className="metric-dot is-good" /><strong>{data.counts?.activeSessions ?? 0}</strong><small>Sessões ativas</small></div>
+      <div><span className={`metric-dot ${data.counts?.unsynchronizedRooms ? "is-alert" : "is-good"}`} /><strong>{data.counts?.activeRooms ?? 0}</strong><small>Salas permanentes</small></div>
+      <div><span className={`metric-dot ${data.counts?.failures24h ? "is-alert" : "is-good"}`} /><strong>{data.counts?.failures24h ?? 0}</strong><small>Falhas em 24 h</small></div>
+    </section>
+    <div className="admin-grid">
+      <section className="panel admin-section health-section">
+        <div className="admin-section-head"><div><p className="eyebrow">Estado atual</p><h3>Serviços</h3></div><span className="status-chip is-success">Operacional</span></div>
+        <dl className="health-list">
+          <div><dt>TeamSpeak</dt><dd>{teamSpeak.slotsUsed ?? 0} / {teamSpeak.slotsTotal ?? 0} utilizadores</dd></div>
+          <div><dt>Uptime TeamSpeak</dt><dd>{formatDuration(teamSpeak.uptimeSeconds)}</dd></div>
+          <div><dt>Processo web</dt><dd>{formatDuration(data.health?.processUptimeSeconds)}</dd></div>
+          <div><dt>Base de dados</dt><dd>{formatBytes(data.health?.databaseBytes)}</dd></div>
+          <div><dt>Tráfego</dt><dd>↓ {formatBytes(teamSpeak.bytesDownloaded)} · ↑ {formatBytes(teamSpeak.bytesUploaded)}</dd></div>
+          <div><dt>Salas dessincronizadas</dt><dd className={data.counts?.unsynchronizedRooms ? "value-alert" : "value-good"}>{data.counts?.unsynchronizedRooms ?? 0}</dd></div>
+        </dl>
+      </section>
+      <section className="panel admin-section rate-section">
+        <div className="admin-section-head"><div><p className="eyebrow">Última hora</p><h3>Pressão dos limites</h3></div><span className="badge">Top {data.busiestBuckets?.length || 0}</span></div>
+        <div className="rate-list">{(data.busiestBuckets || []).map((item, index) => <div key={`${item.kind}-${item.address}-${index}`}><span><strong>{item.kind}</strong><small>{item.address}</small></span><b>{item.count}</b></div>)}{!data.busiestBuckets?.length && <p className="empty-admin-row">Sem atividade limitada na última hora.</p>}</div>
+      </section>
+      <section className="panel admin-section sessions-section">
+        <div className="admin-section-head"><div><p className="eyebrow">Acesso web</p><h3>Sessões ativas</h3></div><span className="badge">{data.sessions?.length || 0}</span></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Utilizador</th><th>Rede</th><th>Última atividade</th><th>Expira</th></tr></thead><tbody>{(data.sessions || []).map((session) => <tr key={`${session.databaseId}-${session.createdAt}`}><td><strong>{session.nickname}</strong><small>DB #{session.databaseId}</small></td><td>{session.ip}</td><td>{formatDate(session.lastSeenAt)}</td><td>{formatDate(session.expiresAt)}</td></tr>)}{!data.sessions?.length && <tr><td colSpan="4" className="empty-table">Não existem sessões ativas.</td></tr>}</tbody></table></div>
+      </section>
+      <section className="panel admin-section rooms-section">
+        <div className="admin-section-head"><div><p className="eyebrow">TeamSpeak</p><h3>Salas permanentes</h3></div><span className="badge">{data.rooms?.length || 0}</span></div>
+        <div className="room-status-list">{(data.rooms || []).map((item) => <div key={item.id}><span><strong>{item.title}</strong><small>{item.creator?.nickname || "Utilizador"} · {item.channelCount} canais · {formatDate(item.createdAt)}</small></span><span className={`status-chip ${item.synchronized ? "is-success" : "is-danger"}`}>{item.synchronized ? "Sincronizada" : "Rever"}</span></div>)}{!data.rooms?.length && <p className="empty-admin-row">Ainda não existem salas permanentes.</p>}</div>
+      </section>
+      <section className="panel admin-section audit-section">
+        <div className="admin-section-head"><div><p className="eyebrow">Registo recente</p><h3>Auditoria</h3></div><span className="badge">Últimos {data.audit?.length || 0}</span></div>
+        <div className="admin-table-wrap"><table className="admin-table audit-table"><thead><tr><th>Data</th><th>Utilizador</th><th>Ação</th><th>Rede</th><th>Resultado</th></tr></thead><tbody>{(data.audit || []).map((entry) => <tr key={entry.id}><td>{formatDate(entry.createdAt)}</td><td><strong>{entry.nickname || "Visitante"}</strong>{entry.databaseId && <small>DB #{entry.databaseId}</small>}</td><td>{auditLabels[entry.action] || entry.action}</td><td>{entry.ip}</td><td><span className={`status-chip ${entry.success ? "is-success" : "is-danger"}`} title={entry.details?.message || ""}>{entry.success ? "Concluído" : "Falhou"}</span></td></tr>)}{!data.audit?.length && <tr><td colSpan="5" className="empty-table">Ainda não existem registos de auditoria.</td></tr>}</tbody></table></div>
+      </section>
+    </div>
+    <p className="admin-updated">Dados atualizados em {formatDate(data.fetchedAt)}.</p>
+  </div>;
+}
+
 function Footer() {
   return <footer className="footer">Copyright © {new Date().getFullYear()} realizado com <span className="heart">♥</span> por <a href="https://steamcommunity.com/id/mazarati21" target="_blank" rel="noreferrer">Mazarati</a>{" | "}<a href="https://legendzcommunity.com/" target="_blank" rel="noreferrer">legendzcommunity.com</a></footer>;
 }
@@ -184,6 +267,7 @@ function App() {
   const [sections, setSections] = useState([]), [selections, setSelections] = useState({}), [savedSelections, setSavedSelections] = useState({});
   const [groupMessage, setGroupMessage] = useState({ text: "", type: "neutral" }), [roomMessage, setRoomMessage] = useState({ text: "", type: "neutral" });
   const [groupsBusy, setGroupsBusy] = useState(false), [roomBusy, setRoomBusy] = useState(false), [roomOpen, setRoomOpen] = useState(false);
+  const [view, setView] = useState("panel"), [adminData, setAdminData] = useState(null), [adminBusy, setAdminBusy] = useState(false), [adminError, setAdminError] = useState("");
   const room = useMemo(() => normalizeRoom(auth.activeRoom), [auth.activeRoom]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -206,10 +290,25 @@ function App() {
   useEffect(() => {
     if (auth.authenticated && auth.connected) refreshGroups();
   }, [auth.authenticated, auth.connected]);
+  useEffect(() => { if (!auth.isAdmin && view === "admin") setView("panel"); }, [auth.isAdmin, view]);
+  useEffect(() => {
+    if (view !== "admin" || !auth.isAdmin) return undefined;
+    refreshAdmin(true);
+    const timer = window.setInterval(() => refreshAdmin(false), 30000);
+    return () => window.clearInterval(timer);
+  }, [view, auth.isAdmin]);
+
+  async function refreshAdmin(showLoader = true) {
+    if (showLoader) setAdminBusy(true);
+    setAdminError("");
+    try { setAdminData(await api("/api/admin/overview")); }
+    catch (error) { setAdminError(error.message); }
+    finally { setAdminBusy(false); }
+  }
 
   async function logout() {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch {}
-    csrfToken = ""; setSections([]); setSelections({}); setSavedSelections({}); setRoomOpen(false); await refreshAuth();
+    csrfToken = ""; setSections([]); setSelections({}); setSavedSelections({}); setRoomOpen(false); setView("panel"); setAdminData(null); setAdminError(""); await refreshAuth();
   }
   async function applyGroups() {
     setGroupsBusy(true); setGroupMessage({ text: "A guardar grupos no TeamSpeak...", type: "neutral" });
@@ -238,7 +337,9 @@ function App() {
     <section className="intro-bar" aria-label="Resumo do painel"><div><strong>4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
     {!auth.loading && !auth.authenticated && <AuthPanel auth={auth} onAuthenticated={refreshAll} />}
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
-    {auth.authenticated && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} /></div></div>}
+    {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração</button></nav>}
+    {auth.authenticated && view === "panel" && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} /></div></div>}
+    {auth.authenticated && auth.isAdmin && view === "admin" && <AdminDashboard data={adminData} busy={adminBusy} error={adminError} onRefresh={refreshAdmin} />}
     <Footer />
   </main>;
 }

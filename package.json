@@ -9,7 +9,7 @@
     "build": "esbuild app.jsx --outfile=app.js --format=iife --platform=browser --jsx=transform --minify",
     "start": "node server.js",
     "check": "node --check server.js && node --check tools/teamspeak-query.js && node --check tools/data-store.js",
-    "test": "node --test tests/data-store.test.js tests/server-metrics.test.js tests/teamspeak-query.test.js"
+    "test": "node --test tests/admin-utils.test.js tests/data-store.test.js tests/server-metrics.test.js tests/teamspeak-query.test.js"
   },
   "devDependencies": {
     "esbuild": "0.25.10"

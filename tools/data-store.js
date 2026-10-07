@@ -216,6 +216,8 @@ class DataStore {
       creatorDatabaseId: Number(row.creator_database_id),
       creatorNickname: row.creator_nickname,
       title: row.title,
+      createdAt: Number(row.created_at || 0),
+      updatedAt: Number(row.updated_at || 0),
       teamspeak: {
         topLineCid: Number(row.top_line_cid),
         parentCid: Number(row.parent_cid),
@@ -384,6 +386,61 @@ class DataStore {
       entry.action, entry.target || null, entry.success ? 1 : 0,
       entry.details ? JSON.stringify(entry.details).slice(0, 2000) : null
     );
+  }
+
+  getAdminSnapshot(now = Date.now()) {
+    const activeSessions = this.db.prepare(`
+      SELECT database_id, nickname, ip, created_at, expires_at, last_seen_at
+      FROM sessions WHERE revoked = 0 AND expires_at > ?
+      ORDER BY last_seen_at DESC
+    `).all(now).map((row) => ({
+      databaseId: Number(row.database_id),
+      nickname: row.nickname,
+      ip: row.ip,
+      createdAt: Number(row.created_at),
+      expiresAt: Number(row.expires_at),
+      lastSeenAt: Number(row.last_seen_at)
+    }));
+    const audit = this.db.prepare(`
+      SELECT id, created_at, database_id, nickname, ip, action, target, success, details
+      FROM audit_log ORDER BY id DESC LIMIT 60
+    `).all().map((row) => {
+      let details = null;
+      try { details = row.details ? JSON.parse(row.details) : null; } catch { details = null; }
+      return {
+        id: Number(row.id),
+        createdAt: Number(row.created_at),
+        databaseId: row.database_id == null ? null : Number(row.database_id),
+        nickname: row.nickname || null,
+        ip: row.ip,
+        action: row.action,
+        target: row.target || null,
+        success: Boolean(row.success),
+        details
+      };
+    });
+    const failures = this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_failures,
+        SUM(CASE WHEN success = 0 AND action LIKE 'auth.%' THEN 1 ELSE 0 END) AS auth_failures
+      FROM audit_log WHERE created_at >= ?
+    `).get(now - 86_400_000) || {};
+    const busiestBuckets = this.db.prepare(`
+      SELECT bucket, SUM(count) AS count
+      FROM rate_limits WHERE window_start >= ?
+      GROUP BY bucket ORDER BY count DESC LIMIT 8
+    `).all(now - 3_600_000).map((row) => ({ bucket: row.bucket, count: Number(row.count) }));
+
+    return {
+      rooms: this.getRooms().filter((room) => room.active),
+      activeSessions,
+      audit,
+      security: {
+        failures24h: Number(failures.total_failures || 0),
+        authFailures24h: Number(failures.auth_failures || 0),
+        busiestBuckets
+      }
+    };
   }
 
   cleanup() {
