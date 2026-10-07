@@ -9,6 +9,7 @@ Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e cr
 - Uma sala ativa por `client_database_id`, garantida também por restrição SQLite.
 - Channel Admin automático na sala principal e nas quatro subsalas.
 - Palavra-passe independente por subsala, com ações explícitas para manter, alterar ou remover.
+- Nome personalizado para cada subsala, editável posteriormente pelo respetivo criador.
 - Ligação ServerQuery persistente, serializada e com reconexão automática.
 - Grupos permitidos definidos no servidor; `Membro` e grupos internos não são expostos.
 - SQLite persistente para salas, sessões, desafios, limites e auditoria.

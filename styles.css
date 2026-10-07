@@ -104,7 +104,8 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .creator-form { display: grid; gap: 14px; padding: 18px; }
 .field { display: grid; gap: 6px; color: #30394b; font-size: 11px; font-weight: 800; }
 .big-field input { min-height: 44px; font-size: 14px; font-weight: 650; }
-.password-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.password-grid, .channel-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.channel-config { display: grid; gap: 10px; padding: 12px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; }
 .primary-button, .danger-button { min-height: 42px; padding: 0 15px; color: #fff; border-radius: 6px; font-weight: 850; cursor: pointer; transition: background 140ms ease, transform 140ms ease, opacity 140ms ease; }
 .primary-button { background: var(--red); }
 .primary-button:hover:not(:disabled) { background: var(--red-dark); transform: translateY(-1px); }
@@ -260,7 +261,7 @@ html[data-theme="dark"] .footer a { color: #e3e8ef; }
   .intro-bar p { grid-column: 1 / -1; padding: 13px; border-top: 1px solid var(--line); }
   .group-card { grid-template-columns: 1fr; }
   .group-choice { grid-column: 1; }
-  .password-grid, .admin-panel { grid-template-columns: 1fr; }
+  .password-grid, .channel-config-grid, .admin-panel { grid-template-columns: 1fr; }
   .admin-actions { grid-template-columns: 1fr; }
   .profile-facts { grid-template-columns: 1fr 1fr; }
   .auth-copy, .auth-action { padding: 24px; }

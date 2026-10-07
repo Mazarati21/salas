@@ -7,10 +7,10 @@ let csrfToken = "";
 
 function normalizeRoom(room) {
   if (!room) return null;
-  return { ...room, channels: channelNames.map((name, index) => ({
-    ...(room.channels?.[index] || {}), name,
-    passwordProtected: Boolean(room.channels?.[index]?.passwordProtected)
-  })) };
+  return { ...room, channels: channelNames.map((fallbackName, index) => {
+    const channel = room.channels?.[index] || {};
+    return { ...channel, name: channel.name || fallbackName, passwordProtected: Boolean(channel.passwordProtected) };
+  }) };
 }
 
 async function api(path, options = {}) {
@@ -148,13 +148,14 @@ function GroupsPanel({ sections, selections, setSelections, savedSelections, onA
 
 function CreatorPanel({ enabled, hasActiveRoom, onCreate, message, busy }) {
   const [title, setTitle] = useState("");
+  const [names, setNames] = useState(channelNames);
   const [passwords, setPasswords] = useState(["", "", "", ""]);
   async function submit(event) {
     event.preventDefault();
-    const created = await onCreate({ title: title.trim(), channels: channelNames.map((name, index) => ({ name, password: passwords[index].trim() })) });
-    if (created) { setTitle(""); setPasswords(["", "", "", ""]); }
+    const created = await onCreate({ title: title.trim(), channels: names.map((name, index) => ({ name: name.trim(), password: passwords[index].trim() })) });
+    if (created) { setTitle(""); setNames(channelNames); setPasswords(["", "", "", ""]); }
   }
-  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>1 sala por utilizador</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Ortigas mais 4" required disabled={!enabled || hasActiveRoom} /></label><div className="password-grid">{channelNames.map((name, index) => <label className="field" key={name}><span>Palavra-passe do {name}</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : "Criar sala"}</button></form><Message message={message} /></section>;
+  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>1 sala por utilizador</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Ortigas mais 4" required disabled={!enabled || hasActiveRoom} /></label><div className="channel-config-grid">{channelNames.map((fallbackName, index) => <div className="channel-config" key={fallbackName}><label className="field"><span>Nome da subsala {index + 1}</span><input value={names[index]} onChange={(event) => { const next = [...names]; next[index] = event.target.value; setNames(next); }} maxLength="28" placeholder={fallbackName} required disabled={!enabled || hasActiveRoom} /></label><label className="field"><span>Palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label></div>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : "Criar sala"}</button></form><Message message={message} /></section>;
 }
 
 function RoomTree({ room, open, setOpen, onUpdate, onDelete, busy }) {
@@ -163,15 +164,16 @@ function RoomTree({ room, open, setOpen, onUpdate, onDelete, busy }) {
 
 function RoomCard({ room, isOpen, setOpen, onUpdate, onDelete, busy }) {
   const [title, setTitle] = useState(room.title);
+  const [names, setNames] = useState(room.channels.map((channel, index) => channel.name || channelNames[index]));
   const [actions, setActions] = useState(["keep", "keep", "keep", "keep"]);
   const [passwords, setPasswords] = useState(["", "", "", ""]);
-  useEffect(() => { setTitle(room.title); setActions(["keep", "keep", "keep", "keep"]); setPasswords(["", "", "", ""]); }, [room]);
+  useEffect(() => { setTitle(room.title); setNames(room.channels.map((channel, index) => channel.name || channelNames[index])); setActions(["keep", "keep", "keep", "keep"]); setPasswords(["", "", "", ""]); }, [room]);
   async function submit(event) {
     event.preventDefault();
-    const updated = await onUpdate({ id: room.id, title: title.trim() || room.title, channels: channelNames.map((name, index) => ({ name, passwordAction: actions[index], password: actions[index] === "change" ? passwords[index].trim() : "" })) });
+    const updated = await onUpdate({ id: room.id, title: title.trim() || room.title, channels: names.map((name, index) => ({ name: name.trim(), passwordAction: actions[index], password: actions[index] === "change" ? passwords[index].trim() : "" })) });
     if (updated) { setActions(["keep", "keep", "keep", "keep"]); setPasswords(["", "", "", ""]); }
   }
-  return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"}</small></button><ul className="channel-list">{room.channels.map((channel) => <li key={channel.name}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required /></label>{channelNames.map((name, index) => <div className="password-editor" key={name}><label className="field"><span>{name}</span><select value={actions[index]} onChange={(event) => { const next = [...actions]; next[index] = event.target.value; setActions(next); }}><option value="keep">{room.channels[index]?.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{room.channels[index]?.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{room.channels[index]?.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{actions[index] === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" required placeholder="Até 24 caracteres" /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={busy} onClick={() => window.confirm("Apagar esta sala e as quatro subsalas do TeamSpeak?") && onDelete(room)}>Apagar sala</button></div></form>}</article>;
+  return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"}</small></button><ul className="channel-list">{room.channels.map((channel, index) => <li key={channel.cid || index}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required /></label>{channelNames.map((fallbackName, index) => <div className="password-editor" key={fallbackName}><label className="field"><span>Nome da subsala {index + 1}</span><input value={names[index]} onChange={(event) => { const next = [...names]; next[index] = event.target.value; setNames(next); }} maxLength="28" placeholder={fallbackName} required /></label><label className="field"><span>Palavra-passe</span><select value={actions[index]} onChange={(event) => { const next = [...actions]; next[index] = event.target.value; setActions(next); }}><option value="keep">{room.channels[index]?.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{room.channels[index]?.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{room.channels[index]?.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{actions[index] === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" required placeholder="Até 24 caracteres" /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={busy} onClick={() => window.confirm("Apagar esta sala e as quatro subsalas do TeamSpeak?") && onDelete(room)}>Apagar sala</button></div></form>}</article>;
 }
 
 const auditLabels = {
@@ -322,7 +324,7 @@ function App() {
   }
   async function updateRoom(payload) {
     setRoomBusy(true); setRoomMessage({ text: "A guardar alterações no TeamSpeak...", type: "neutral" });
-    try { const result = await api("/api/rooms", { method: "PATCH", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomMessage({ text: "Alterações guardadas.", type: "success" }); return true; }
+    try { const result = await api("/api/rooms", { method: "PATCH", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomMessage({ text: "Nomes e palavras-passe atualizados no TeamSpeak.", type: "success" }); return true; }
     catch (error) { setRoomMessage({ text: error.message, type: "error" }); return false; } finally { setRoomBusy(false); }
   }
   async function deleteRoom(target) {

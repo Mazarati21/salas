@@ -34,8 +34,9 @@ test("persists room state and password metadata", () => withStore((store) => {
   assert.equal(room.title, "Sala segura");
   assert.deepEqual(room.channels.map((channel) => channel.passwordProtected), [true, false, false, false]);
 
-  const updated = store.updateRoom(room.id, "Sala editada", room.channels.map((channel) => ({ ...channel, passwordProtected: false })));
+  const updated = store.updateRoom(room.id, "Sala editada", room.channels.map((channel, index) => ({ ...channel, name: `Jogo ${index + 1}`, passwordProtected: false })));
   assert.equal(updated.title, "Sala editada");
+  assert.deepEqual(updated.channels.map((channel) => channel.name), ["Jogo 1", "Jogo 2", "Jogo 3", "Jogo 4"]);
   assert.equal(updated.channels.some((channel) => channel.passwordProtected), false);
 }));
 

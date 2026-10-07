@@ -549,6 +549,25 @@ function sanitizeTitle(value) {
   return [...String(value || "").replace(/[\[\]\r\n\t]/g, "").replace(/\s+/g, " ").trim()].slice(0, 27).join("");
 }
 
+function sanitizeSubchannelName(value) {
+  return [...String(value || "")
+    .replace(/[\[\]\r\n\t]/g, "")
+    .replace(/^[●•]+\s*/u, "")
+    .replace(/\s+/g, " ")
+    .trim()].slice(0, 28).join("");
+}
+
+function requestedSubchannelNames(channels, fallbacks = []) {
+  const names = Array.from({ length: 4 }, (_, index) => sanitizeSubchannelName(
+    channels?.[index]?.name || fallbacks[index] || `Convivio ${index + 1}`
+  ));
+  if (names.some((name) => !name)) throw new HttpError(400, "Todas as subsalas precisam de um nome válido.");
+  if (new Set(names.map((name) => name.toLocaleLowerCase("pt-PT"))).size !== names.length) {
+    throw new HttpError(400, "Escolhe um nome diferente para cada subsala.");
+  }
+  return names;
+}
+
 function randomSpacerId() {
   return crypto.randomBytes(3).toString("hex").slice(0, 4);
 }
@@ -583,6 +602,7 @@ function serializeRoom(room) {
 async function createRoom(payload, session) {
   const title = sanitizeTitle(payload.title);
   if (!title) throw new HttpError(400, "Escreve um nome válido para a sala.");
+  const subchannelNames = requestedSubchannelNames(payload.channels);
   const passwords = Array.from({ length: 4 }, (_, index) => String(payload.channels?.[index]?.password || "").trim().slice(0, 24));
 
   return withTeamSpeak(async (ts) => {
@@ -621,15 +641,16 @@ async function createRoom(payload, session) {
       const channels = [];
       let previousSubCid = 0;
       for (let index = 0; index < 4; index += 1) {
-        const cid = await createChannel(ts, `criar Convivio ${index + 1}`, {
-          channel_name: `● Convivio ${index + 1}`,
+        const channelName = subchannelNames[index];
+        const cid = await createChannel(ts, `criar subsala ${index + 1}`, {
+          channel_name: `● ${channelName}`,
           channel_flag_permanent: 1,
           cpid: parentCid,
           channel_order: previousSubCid,
           channel_password: passwords[index]
         });
         createdCids.push(cid);
-        channels.push({ cid, name: `Convivio ${index + 1}`, passwordProtected: Boolean(passwords[index]) });
+        channels.push({ cid, name: channelName, passwordProtected: Boolean(passwords[index]) });
         previousSubCid = cid;
       }
 
@@ -673,6 +694,7 @@ async function updateRoom(payload, session) {
   if (!title || !payload.id) throw new HttpError(400, "Sala inválida para atualizar.");
   const requestedChannels = Array.isArray(payload.channels) ? payload.channels : [];
   const room = getOwnedRoom(session, payload.id);
+  const subchannelNames = requestedSubchannelNames(requestedChannels, room.channels.map((channel) => channel.name));
   const passwordChanges = Array.from({ length: 4 }, (_, index) => {
     const action = String(requestedChannels[index]?.passwordAction || "keep");
     const password = String(requestedChannels[index]?.password || "").trim().slice(0, 24);
@@ -680,7 +702,7 @@ async function updateRoom(payload, session) {
       throw new HttpError(400, "Ação de palavra-passe inválida.");
     }
     if (action === "change" && !password) {
-      throw new HttpError(400, `Escreve a nova palavra-passe do Convivio ${index + 1}.`);
+      throw new HttpError(400, `Escreve a nova palavra-passe de ${subchannelNames[index]}.`);
     }
     return { action, password };
   });
@@ -692,15 +714,16 @@ async function updateRoom(payload, session) {
     for (let index = 0; index < 4; index += 1) {
       const saved = room.channels[index];
       if (!saved?.cid) continue;
+      const channelName = subchannelNames[index];
       const { action, password } = passwordChanges[index];
       const passwordPart = action === "keep" ? "" : ` channel_password=${tsEscape(action === "remove" ? "" : password)}`;
       await ts.command(
-        `atualizar Convivio ${index + 1}`,
-        `channeledit cid=${saved.cid} channel_name=${tsEscape(`● Convivio ${index + 1}`)}${passwordPart}`
+        `atualizar subsala ${index + 1}`,
+        `channeledit cid=${saved.cid} channel_name=${tsEscape(`● ${channelName}`)}${passwordPart}`
       );
       updatedChannels.push({
         cid: saved.cid,
-        name: `Convivio ${index + 1}`,
+        name: channelName,
         passwordProtected: action === "keep" ? saved.passwordProtected : action === "change"
       });
     }
