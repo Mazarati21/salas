@@ -53,7 +53,7 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 - `TRUST_PROXY=1`
 - `SESSION_SECRET` com pelo menos 32 caracteres aleatórios
 - todas as variáveis `TS_*` com os valores de produção
-- `TS_ADMIN_GROUP_IDS=6`, ou uma lista separada por vírgulas com os IDs dos grupos autorizados a abrir a área administrativa
+- `TS_ADMIN_GROUP_IDS=114,232,234,326,1266`, ou outra lista separada por vírgulas com os IDs dos grupos autorizados a abrir a área administrativa
 
 Não cries `ALLOW_LOCAL_QUERY_OWNER_FALLBACK` em produção. O cPanel fornece `PORT` automaticamente; utiliza esse valor em vez de fixar uma porta manualmente.
 

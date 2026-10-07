@@ -5,6 +5,7 @@ const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("../tools/admin-ut
 test("recognizes configured TeamSpeak administrator groups", () => {
   assert.equal(hasAdminGroup([7, 6, 12], new Set([6])), true);
   assert.equal(hasAdminGroup([7, 12], new Set([6])), false);
+  assert.equal(hasAdminGroup([114, 241, 1266], new Set([114, 232, 234, 326, 1266])), true);
 });
 
 test("masks network addresses in administrative responses", () => {
