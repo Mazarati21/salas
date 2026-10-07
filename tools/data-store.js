@@ -365,6 +365,16 @@ class DataStore {
     this.db.prepare("UPDATE sessions SET revoked = 1 WHERE token_hash = ?").run(tokenHash);
   }
 
+  revokeSessionsByDatabaseId(databaseId) {
+    const now = Date.now();
+    const active = Number(this.db.prepare(`
+      SELECT COUNT(*) AS count FROM sessions
+      WHERE database_id = ? AND revoked = 0 AND expires_at > ?
+    `).get(Number(databaseId), now).count || 0);
+    if (active) this.db.prepare("UPDATE sessions SET revoked = 1 WHERE database_id = ? AND revoked = 0 AND expires_at > ?").run(Number(databaseId), now);
+    return active;
+  }
+
   incrementRateLimit(bucket, windowMs) {
     const windowStart = Math.floor(Date.now() / windowMs) * windowMs;
     this.db.prepare(`

@@ -50,9 +50,13 @@ test("enforces one active room per TeamSpeak database user", () => withStore((st
 test("stores, resolves and revokes sessions", () => withStore((store) => {
   const now = Date.now();
   store.createSession({ tokenHash: "hash", databaseId: 42, nickname: "Tester", uniqueId: "uid", ip: "127.0.0.1", userAgentHash: "ua", createdAt: now, expiresAt: now + 60_000 });
+  store.createSession({ tokenHash: "other-hash", databaseId: 77, nickname: "Other", uniqueId: "other-uid", ip: "127.0.0.2", userAgentHash: "other-ua", createdAt: now, expiresAt: now + 60_000 });
   assert.equal(store.getSession("hash").database_id, 42);
   store.revokeSession("hash");
   assert.equal(store.getSession("hash"), undefined);
+  assert.equal(store.revokeSessionsByDatabaseId(77), 1);
+  assert.equal(store.getSession("other-hash"), undefined);
+  assert.equal(store.revokeSessionsByDatabaseId(77), 0);
 }));
 
 test("rate limits survive individual requests", () => withStore((store) => {

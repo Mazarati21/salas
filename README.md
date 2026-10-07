@@ -77,7 +77,7 @@ O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a
 
 A vista **Administração** só aparece quando o utilizador autenticado está ligado ao TeamSpeak e pertence a um dos grupos definidos em `TS_ADMIN_GROUP_IDS`. A API volta a confirmar o grupo no TeamSpeak em cada acesso, pelo que esconder o botão no browser não é a barreira de segurança.
 
-Esta primeira versão é deliberadamente só de leitura. Não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos. Mostra apenas métricas operacionais, salas, sessões ativas anonimizadas e os 60 eventos de auditoria mais recentes.
+Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem terminar sessões web de terceiros e remover salas permanentes; cada ação volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
 
 ## Publicação num VPS
 

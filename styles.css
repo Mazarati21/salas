@@ -163,10 +163,14 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .admin-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
 .readonly-badge, .refresh-button { min-height: 36px; padding: 0 12px; border-radius: 5px; font-size: 10px; font-weight: 850; }
 .readonly-badge { display: inline-flex; align-items: center; color: #aeb8c8; background: #212936; border: 1px solid #3a4557; text-transform: uppercase; }
+.readonly-badge.is-manage { color: #ffd9dc; background: #3a1b22; border-color: #74323b; }
 .refresh-button { color: #fff; background: var(--red); cursor: pointer; }
 .refresh-button:hover:not(:disabled) { background: var(--red-dark); }
 .refresh-button:disabled { cursor: wait; opacity: .65; }
 .admin-warning { padding: 11px 13px; color: #7a4c00; background: #fff6dd; border: 1px solid #eed394; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.admin-action-message { padding: 11px 13px; border: 1px solid; border-radius: 6px; font-size: 11px; font-weight: 750; }
+.admin-action-message.is-success { color: #145c43; background: #effbf6; border-color: #bce8d5; }
+.admin-action-message.is-error { color: #8b1e28; background: #fff2f3; border-color: #f3c3c7; }
 .metric-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .metric-strip > div { position: relative; display: grid; gap: 2px; min-width: 0; padding: 17px 20px 17px 37px; border-right: 1px solid var(--line); }
 .metric-strip > div:last-child { border-right: 0; }
@@ -207,6 +211,12 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .room-status-list > div > span:first-child { display: grid; min-width: 0; gap: 3px; }
 .room-status-list strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .room-status-list small { color: var(--muted); font-size: 9px; }
+.room-admin-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.table-action { min-height: 29px; padding: 0 9px; color: #344054; background: var(--surface-soft); border: 1px solid var(--line-strong); border-radius: 5px; font-size: 9px; font-weight: 850; cursor: pointer; white-space: nowrap; }
+.table-action:hover:not(:disabled) { color: var(--ink); background: var(--panel-hover); border-color: #9ba6b7; }
+.table-action.is-danger { color: #a02631; background: #fff3f4; border-color: #efc3c7; }
+.table-action.is-danger:hover:not(:disabled) { color: #fff; background: var(--red-dark); border-color: var(--red-dark); }
+.table-action:disabled { cursor: not-allowed; opacity: .5; }
 .empty-admin-row { margin: 0; padding: 17px 0; color: var(--muted); font-size: 11px; }
 .admin-table-wrap { max-width: 100%; overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 10px; }
@@ -236,6 +246,10 @@ html[data-theme="dark"] .empty-groups, html[data-theme="dark"] .empty-tree { bac
 html[data-theme="dark"] .message.is-success { color: #8fe0bd; background: #11261f; border-color: #285d49; }
 html[data-theme="dark"] .message.is-error { color: #ffadb4; background: #2b1519; border-color: #6f3037; }
 html[data-theme="dark"] .admin-warning { color: #f0c675; background: #302611; border-color: #695321; }
+html[data-theme="dark"] .admin-action-message.is-success { color: #8fe0bd; background: #11261f; border-color: #285d49; }
+html[data-theme="dark"] .admin-action-message.is-error { color: #ffadb4; background: #2b1519; border-color: #6f3037; }
+html[data-theme="dark"] .table-action { color: #d3dae5; background: #202734; border-color: #445064; }
+html[data-theme="dark"] .table-action.is-danger { color: #ffb3b9; background: #2b1519; border-color: #6f3037; }
 html[data-theme="dark"] .status-chip.is-success { color: #8ce0bd; background: #10271f; border-color: #285d49; }
 html[data-theme="dark"] .status-chip.is-danger { color: #ffabb2; background: #2b1519; border-color: #6f3037; }
 html[data-theme="dark"] .temporary-block { color: #eef2f7; border-top-color: #d7dde7; }
@@ -279,6 +293,7 @@ html[data-theme="dark"] .footer a { color: #e3e8ef; }
   .health-list > div:nth-last-child(2) { border-bottom: 1px solid var(--line); }
   .admin-table { min-width: 620px; }
   .rooms-section .room-status-list > div { align-items: flex-start; padding: 12px 0; }
+  .room-admin-controls { align-items: flex-end; flex-direction: column; }
 }
 @media (max-width: 430px) {
   .app-shell { width: 100%; margin: 0; }

@@ -21,6 +21,7 @@ const challengeLifetimeMs = 5 * 60 * 1000;
 const tempSpacerCid = Number(process.env.TS_TEMP_SPACER_CID || 902);
 const channelAdminGroupId = Number(process.env.TS_CHANNEL_ADMIN_GROUP_ID || 49);
 const adminGroupIds = new Set(String(process.env.TS_ADMIN_GROUP_IDS || "114,232,234,326,1266").split(",").map(Number).filter(Number.isFinite));
+const founderGroupIds = new Set(String(process.env.TS_FOUNDER_GROUP_IDS || "114").split(",").map(Number).filter(Number.isFinite));
 const protectedThinSeparatorCid = Number(process.env.TS_PROTECTED_THIN_CID || 33738);
 const protectedThinSeparatorName = process.env.TS_PROTECTED_THIN_NAME || "[*spacer252f6c22]━";
 const dataDir = path.join(root, "data");
@@ -286,6 +287,10 @@ function isAdminClient(client) {
   return hasAdminGroup(client?.serverGroups, adminGroupIds);
 }
 
+function isFounderClient(client) {
+  return hasAdminGroup(client?.serverGroups, founderGroupIds);
+}
+
 function withTeamSpeak(work) {
   return teamSpeak.run(work);
 }
@@ -332,7 +337,13 @@ async function getSessionClient(ts, session, includeGroups = false) {
 async function requireAdmin(ts, session) {
   const client = await getSessionClient(ts, session, true);
   if (!isAdminClient(client)) throw new HttpError(403, "Esta área está reservada aos administradores do TeamSpeak.");
-  return { session, client };
+  return { session, client, canManage: isFounderClient(client) };
+}
+
+async function requireFounder(ts, session) {
+  const access = await requireAdmin(ts, session);
+  if (!access.canManage) throw new HttpError(403, "Esta ação está reservada ao grupo Fundador.");
+  return access;
 }
 
 async function startAuthChallenge(request, payload) {
@@ -731,29 +742,53 @@ async function updateRoom(payload, session) {
   });
 }
 
+async function deleteStoredRoom(ts, room) {
+  const channels = await getChannels(ts);
+  const topLine = channels.find((channel) => Number(channel.cid) === room.teamspeak.topLineCid);
+  const protectedSeparator = channels.find((channel) => Number(channel.cid) === protectedThinSeparatorCid);
+  if (protectedSeparator && Number(protectedSeparator.channel_order) === room.teamspeak.parentCid) {
+    await ts.command(
+      "preservar separador protegido",
+      `channeledit cid=${protectedThinSeparatorCid} channel_order=${Number(topLine?.channel_order || 0)}`
+    );
+  }
+
+  const roomCids = [...room.channels.map((channel) => channel.cid), room.teamspeak.parentCid, room.teamspeak.topLineCid];
+  for (const cid of roomCids) {
+    if (channels.some((channel) => Number(channel.cid) === Number(cid))) {
+      await ts.command("apagar canal da sala", `channeldelete cid=${Number(cid)} force=1`);
+    }
+  }
+  store.markRoomInactive(room.id);
+}
+
 async function deleteRoom(payload, session) {
   if (!payload.id) throw new HttpError(400, "Sala inválida para apagar.");
   const room = getOwnedRoom(session, payload.id);
   return withTeamSpeak(async (ts) => {
     await getSessionClient(ts, session);
-    const channels = await getChannels(ts);
-    const topLine = channels.find((channel) => Number(channel.cid) === room.teamspeak.topLineCid);
-    const protectedSeparator = channels.find((channel) => Number(channel.cid) === protectedThinSeparatorCid);
-    if (protectedSeparator && Number(protectedSeparator.channel_order) === room.teamspeak.parentCid) {
-      await ts.command(
-        "preservar separador protegido",
-        `channeledit cid=${protectedThinSeparatorCid} channel_order=${Number(topLine?.channel_order || 0)}`
-      );
-    }
-
-    const roomCids = [...room.channels.map((channel) => channel.cid), room.teamspeak.parentCid, room.teamspeak.topLineCid];
-    for (const cid of roomCids) {
-      if (channels.some((channel) => Number(channel.cid) === Number(cid))) {
-        await ts.command("apagar canal da sala", `channeldelete cid=${Number(cid)} force=1`);
-      }
-    }
-    store.markRoomInactive(room.id);
+    await deleteStoredRoom(ts, room);
   });
+}
+
+async function deleteRoomAsFounder(payload, session) {
+  if (!payload.id) throw new HttpError(400, "Sala inválida para apagar.");
+  const room = store.getActiveRoomById(payload.id);
+  if (!room) throw new HttpError(404, "Sala ativa não encontrada.");
+  return withTeamSpeak(async (ts) => {
+    await requireFounder(ts, session);
+    await deleteStoredRoom(ts, room);
+  });
+}
+
+async function revokeSessionsAsFounder(payload, session) {
+  const databaseId = Number(payload.databaseId);
+  if (!Number.isSafeInteger(databaseId) || databaseId <= 0) throw new HttpError(400, "Utilizador inválido.");
+  if (databaseId === Number(session.database_id)) throw new HttpError(400, "Não podes terminar a tua própria sessão por esta área.");
+  await withTeamSpeak((ts) => requireFounder(ts, session));
+  const revoked = store.revokeSessionsByDatabaseId(databaseId);
+  if (!revoked) throw new HttpError(404, "Não existem sessões ativas para este utilizador.");
+  return { revoked };
 }
 
 async function auditAction(request, session, action, target, work) {
@@ -870,14 +905,15 @@ function cleanAuditDetails(details) {
 async function getAdminOverview(request) {
   const session = requireSession(request);
   const teamSpeakState = await withTeamSpeak(async (ts) => {
-    await requireAdmin(ts, session);
+    const access = await requireAdmin(ts, session);
     const startedAt = Date.now();
     const info = await ts.command("estado administrativo do servidor", "serverinfo");
     const channels = await ts.command("canais administrativos", "channellist");
     return {
       metrics: publicServerMetrics(parseItems(info)[0] || {}),
       channelIds: new Set(parseItems(channels).map((channel) => Number(channel.cid))),
-      latencyMs: Date.now() - startedAt
+      latencyMs: Date.now() - startedAt,
+      canManage: access.canManage
     };
   });
   const snapshot = store.getAdminSnapshot();
@@ -896,6 +932,7 @@ async function getAdminOverview(request) {
 
   return {
     administrator: publicUser(session),
+    permissions: { canManage: teamSpeakState.canManage },
     fetchedAt: Date.now(),
     health: {
       queryOnline: true,
@@ -951,6 +988,22 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/admin/overview" && request.method === "GET") {
       sendJson(response, 200, { ok: true, ...(await getAdminOverview(request)) });
+      return;
+    }
+
+    if (pathname === "/api/admin/sessions/revoke" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      const result = await auditAction(request, session, "admin.session.revoke", String(body.databaseId || ""), () => revokeSessionsAsFounder(body, session));
+      sendJson(response, 200, { ok: true, ...result });
+      return;
+    }
+
+    if (pathname === "/api/admin/rooms" && request.method === "DELETE") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      await auditAction(request, session, "admin.room.delete", body.id, () => deleteRoomAsFounder(body, session));
+      sendJson(response, 200, { ok: true });
       return;
     }
 
