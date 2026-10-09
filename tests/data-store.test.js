@@ -14,6 +14,7 @@ async function withStore(work) {
 }
 
 function sampleRoom(overrides = {}) {
+  const channelCount = overrides.channelCount || 4;
   return {
     id: overrides.id || "room-1",
     active: true,
@@ -22,10 +23,11 @@ function sampleRoom(overrides = {}) {
     title: "Sala segura",
     autoExpire: overrides.autoExpire === true,
     teamspeak: { topLineCid: 100, parentCid: 101, bottomLineCid: 902 },
-    channels: [1, 2, 3, 4].map((position) => ({
-      cid: 101 + position,
-      name: `Convivio ${position}`,
-      passwordProtected: position === 1
+    channels: Array.from({ length: channelCount }, (_, index) => ({
+      position: index + 1,
+      cid: 102 + index,
+      name: `Convivio ${index + 1}`,
+      passwordProtected: index === 0
     }))
   };
 }
@@ -47,6 +49,20 @@ test("enforces one active room per TeamSpeak database user", () => withStore((st
   assert.throws(() => store.insertRoom(sampleRoom({ id: "room-2" })), /UNIQUE constraint failed/);
   store.markRoomInactive("room-1");
   assert.doesNotThrow(() => store.insertRoom(sampleRoom({ id: "room-2" })));
+}));
+
+test("replaces a room channel list when its size changes", () => withStore((store) => {
+  const room = store.insertRoom(sampleRoom());
+  const reduced = store.updateRoom(room.id, room.title, room.channels.slice(0, 2));
+  assert.deepEqual(reduced.channels.map((channel) => channel.name), ["Convivio 1", "Convivio 2"]);
+
+  const expanded = store.updateRoom(room.id, room.title, [
+    ...reduced.channels,
+    { cid: 201, name: "Convivio 3", passwordProtected: false },
+    { cid: 202, name: "Convivio 4", passwordProtected: true }
+  ]);
+  assert.equal(expanded.channels.length, 4);
+  assert.deepEqual(expanded.channels.map((channel) => channel.cid), [102, 103, 201, 202]);
 }));
 
 test("only tracks inactivity for newly opted-in rooms", () => withStore((store) => {

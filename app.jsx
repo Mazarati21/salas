@@ -5,10 +5,15 @@ const channelNames = ["Convivio 1", "Convivio 2", "Convivio 3", "Convivio 4"];
 const appBasePath = (document.querySelector('meta[name="app-base-path"]')?.content || "").replace(/\/$/, "");
 let csrfToken = "";
 
+function nextDefaultChannelName(channels) {
+  const usedNames = new Set(channels.map((channel) => String(channel.name || "").trim().toLocaleLowerCase("pt-PT")));
+  return channelNames.find((name) => !usedNames.has(name.toLocaleLowerCase("pt-PT"))) || `Convivio ${channels.length + 1}`;
+}
+
 function normalizeRoom(room) {
   if (!room) return null;
-  return { ...room, channels: channelNames.map((fallbackName, index) => {
-    const channel = room.channels?.[index] || {};
+  return { ...room, channels: (room.channels || []).slice(0, 4).map((channel, index) => {
+    const fallbackName = channelNames[index];
     return { ...channel, name: channel.name || fallbackName, passwordProtected: Boolean(channel.passwordProtected) };
   }) };
 }
@@ -148,14 +153,24 @@ function GroupsPanel({ sections, selections, setSelections, savedSelections, onA
 
 function CreatorPanel({ enabled, hasActiveRoom, onCreate, message, busy }) {
   const [title, setTitle] = useState("");
-  const [names, setNames] = useState(channelNames);
-  const [passwords, setPasswords] = useState(["", "", "", ""]);
+  const [channels, setChannels] = useState([{ name: channelNames[0], password: "" }]);
+  function updateChannel(index, field, value) {
+    setChannels(channels.map((channel, channelIndex) => channelIndex === index ? { ...channel, [field]: value } : channel));
+  }
+  function addChannel() {
+    if (channels.length >= 4) return;
+    setChannels([...channels, { name: nextDefaultChannelName(channels), password: "" }]);
+  }
+  function removeChannel(index) {
+    if (channels.length <= 1) return;
+    setChannels(channels.filter((_, channelIndex) => channelIndex !== index));
+  }
   async function submit(event) {
     event.preventDefault();
-    const created = await onCreate({ title: title.trim(), channels: names.map((name, index) => ({ name: name.trim(), password: passwords[index].trim() })) });
-    if (created) { setTitle(""); setNames(channelNames); setPasswords(["", "", "", ""]); }
+    const created = await onCreate({ title: title.trim(), channels: channels.map((channel) => ({ name: channel.name.trim(), password: channel.password.trim() })) });
+    if (created) { setTitle(""); setChannels([{ name: channelNames[0], password: "" }]); }
   }
-  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>Expira após 30 dias sem atividade</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Ortigas mais 4" required disabled={!enabled || hasActiveRoom} /></label><div className="channel-config-grid">{channelNames.map((fallbackName, index) => <div className="channel-config" key={fallbackName}><label className="field"><span>Nome da subsala {index + 1}</span><input value={names[index]} onChange={(event) => { const next = [...names]; next[index] = event.target.value; setNames(next); }} maxLength="28" placeholder={fallbackName} required disabled={!enabled || hasActiveRoom} /></label><label className="field"><span>Palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label></div>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : "Criar sala"}</button></form><Message message={message} /></section>;
+  return <section className="panel creator-panel"><div className="panel-top split"><div><p className="eyebrow">Nova estrutura</p><h2>Criar sala permanente</h2></div><div className="mini-rule"><span>Expira após 30 dias sem atividade</span><strong>Admin automático</strong></div></div><form className="creator-form" onSubmit={submit}><label className="field big-field"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" placeholder="Ex.: Sala do Mazarati" required disabled={!enabled || hasActiveRoom} /></label><div className="channel-builder-head"><div><strong>Subsalas</strong><span>{channels.length} de 4</span></div><button className="add-channel-button" type="button" onClick={addChannel} disabled={!enabled || hasActiveRoom || channels.length >= 4}>+ Adicionar subsala</button></div><div className="channel-config-grid">{channels.map((channel, index) => <div className="channel-config" key={`create-${index}`}><div className="channel-config-head"><strong>Subsala {index + 1}</strong><button className="remove-channel-button" type="button" onClick={() => removeChannel(index)} disabled={!enabled || hasActiveRoom || channels.length <= 1} aria-label={`Remover subsala ${index + 1}`} title="Remover subsala">×</button></div><label className="field"><span>Nome</span><input value={channel.name} onChange={(event) => updateChannel(index, "name", event.target.value)} maxLength="28" placeholder={channelNames[index]} required disabled={!enabled || hasActiveRoom} /></label><label className="field"><span>Palavra-passe</span><input type="password" autoComplete="new-password" value={channel.password} onChange={(event) => updateChannel(index, "password", event.target.value)} maxLength="24" placeholder="Sem palavra-passe" disabled={!enabled || hasActiveRoom} /></label></div>)}</div><button className="primary-button" disabled={!enabled || hasActiveRoom || busy}>{busy ? "A criar..." : hasActiveRoom ? "Já tens uma sala ativa" : `Criar sala com ${channels.length} ${channels.length === 1 ? "subsala" : "subsalas"}`}</button></form><Message message={message} /></section>;
 }
 
 function RoomTree({ room, open, setOpen, onUpdate, onDelete, busy }) {
@@ -164,16 +179,27 @@ function RoomTree({ room, open, setOpen, onUpdate, onDelete, busy }) {
 
 function RoomCard({ room, isOpen, setOpen, onUpdate, onDelete, busy }) {
   const [title, setTitle] = useState(room.title);
-  const [names, setNames] = useState(room.channels.map((channel, index) => channel.name || channelNames[index]));
-  const [actions, setActions] = useState(["keep", "keep", "keep", "keep"]);
-  const [passwords, setPasswords] = useState(["", "", "", ""]);
-  useEffect(() => { setTitle(room.title); setNames(room.channels.map((channel, index) => channel.name || channelNames[index])); setActions(["keep", "keep", "keep", "keep"]); setPasswords(["", "", "", ""]); }, [room]);
+  const draftChannels = () => room.channels.map((channel, index) => ({ ...channel, name: channel.name || channelNames[index], passwordAction: "keep", password: "" }));
+  const [channels, setChannels] = useState(draftChannels);
+  useEffect(() => { setTitle(room.title); setChannels(draftChannels()); }, [room]);
+  function updateChannel(index, values) {
+    setChannels(channels.map((channel, channelIndex) => channelIndex === index ? { ...channel, ...values } : channel));
+  }
+  function addChannel() {
+    if (channels.length >= 4) return;
+    setChannels([...channels, { name: nextDefaultChannelName(channels), passwordProtected: false, passwordAction: "keep", password: "" }]);
+  }
+  function removeChannel(index) {
+    if (channels.length <= 1) return;
+    const channel = channels[index];
+    if (channel.cid && !window.confirm(`Remover “${channel.name}” quando guardares as alterações?`)) return;
+    setChannels(channels.filter((_, channelIndex) => channelIndex !== index));
+  }
   async function submit(event) {
     event.preventDefault();
-    const updated = await onUpdate({ id: room.id, title: title.trim() || room.title, channels: names.map((name, index) => ({ name: name.trim(), passwordAction: actions[index], password: actions[index] === "change" ? passwords[index].trim() : "" })) });
-    if (updated) { setActions(["keep", "keep", "keep", "keep"]); setPasswords(["", "", "", ""]); }
+    await onUpdate({ id: room.id, title: title.trim() || room.title, channels: channels.map((channel) => ({ cid: channel.cid, name: channel.name.trim(), passwordAction: channel.passwordAction, password: channel.passwordAction === "change" ? channel.password.trim() : "" })) });
   }
-  return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"}{room.autoExpire ? " · 30 dias sem atividade" : ""}</small></button><ul className="channel-list">{room.channels.map((channel, index) => <li key={channel.cid || index}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required /></label>{channelNames.map((fallbackName, index) => <div className="password-editor" key={fallbackName}><label className="field"><span>Nome da subsala {index + 1}</span><input value={names[index]} onChange={(event) => { const next = [...names]; next[index] = event.target.value; setNames(next); }} maxLength="28" placeholder={fallbackName} required /></label><label className="field"><span>Palavra-passe</span><select value={actions[index]} onChange={(event) => { const next = [...actions]; next[index] = event.target.value; setActions(next); }}><option value="keep">{room.channels[index]?.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{room.channels[index]?.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{room.channels[index]?.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{actions[index] === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={passwords[index]} onChange={(event) => { const next = [...passwords]; next[index] = event.target.value; setPasswords(next); }} maxLength="24" required placeholder="Até 24 caracteres" /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={busy} onClick={() => window.confirm("Apagar esta sala e as quatro subsalas do TeamSpeak?") && onDelete(room)}>Apagar sala</button></div></form>}</article>;
+  return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"} · {room.channels.length} {room.channels.length === 1 ? "subsala" : "subsalas"}{room.autoExpire ? " · 30 dias sem atividade" : ""}</small></button><ul className="channel-list">{room.channels.map((channel, index) => <li key={channel.cid || index}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required /></label><div className="channel-builder-head wide"><div><strong>Subsalas</strong><span>{channels.length} de 4</span></div><button className="add-channel-button" type="button" onClick={addChannel} disabled={busy || channels.length >= 4}>+ Adicionar subsala</button></div>{channels.map((channel, index) => <div className="password-editor" key={channel.cid || `new-${index}`}><div className="channel-config-head"><strong>Subsala {index + 1}</strong><button className="remove-channel-button" type="button" onClick={() => removeChannel(index)} disabled={busy || channels.length <= 1} aria-label={`Remover subsala ${index + 1}`} title="Remover subsala">×</button></div><label className="field"><span>Nome</span><input value={channel.name} onChange={(event) => updateChannel(index, { name: event.target.value })} maxLength="28" placeholder={channelNames[index]} required /></label><label className="field"><span>Palavra-passe</span><select value={channel.passwordAction} onChange={(event) => updateChannel(index, { passwordAction: event.target.value, password: "" })}><option value="keep">{channel.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{channel.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{channel.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{channel.passwordAction === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={channel.password} onChange={(event) => updateChannel(index, { password: event.target.value })} maxLength="24" required placeholder="Até 24 caracteres" /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={busy} onClick={() => window.confirm(`Apagar esta sala e ${room.channels.length === 1 ? "a subsala" : "todas as subsalas"} do TeamSpeak?`) && onDelete(room)}>Apagar sala</button></div></form>}</article>;
 }
 
 const auditLabels = {
@@ -339,12 +365,12 @@ function App() {
   }
   async function createRoom(payload) {
     setRoomBusy(true); setRoomMessage({ text: "A criar a sala no TeamSpeak...", type: "neutral" });
-    try { const result = await api("/api/rooms", { method: "POST", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomOpen(true); setRoomMessage({ text: "Sala criada. Recebeste Channel Admin nas cinco salas.", type: "success" }); return true; }
+    try { const result = await api("/api/rooms", { method: "POST", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomOpen(true); setRoomMessage({ text: `Sala criada com ${result.room.channels.length} ${result.room.channels.length === 1 ? "subsala" : "subsalas"}. Recebeste Channel Admin em toda a estrutura.`, type: "success" }); return true; }
     catch (error) { setRoomMessage({ text: error.message, type: "error" }); return false; } finally { setRoomBusy(false); }
   }
   async function updateRoom(payload) {
     setRoomBusy(true); setRoomMessage({ text: "A guardar alterações no TeamSpeak...", type: "neutral" });
-    try { const result = await api("/api/rooms", { method: "PATCH", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomMessage({ text: "Nomes e palavras-passe atualizados no TeamSpeak.", type: "success" }); return true; }
+    try { const result = await api("/api/rooms", { method: "PATCH", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomMessage({ text: "Estrutura da sala atualizada no TeamSpeak.", type: "success" }); return true; }
     catch (error) { setRoomMessage({ text: error.message, type: "error" }); return false; } finally { setRoomBusy(false); }
   }
   async function deleteRoom(target) {
@@ -356,7 +382,7 @@ function App() {
   const enabled = auth.authenticated && auth.connected;
   return <main className="app-shell">
     <header className="hero"><div className="brand-lockup"><span className="brand-mark">LZ</span><div><p className="eyebrow">LegendZ Community</p><h1>Painel TeamSpeak</h1></div></div><div className="header-actions"><ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />{auth.authenticated && <button className="logout-button" type="button" onClick={logout}>Terminar sessão</button>}<StatusPill auth={auth} /></div></header>
-    <section className="intro-bar" aria-label="Resumo do painel"><div><strong>4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
+    <section className="intro-bar" aria-label="Resumo do painel"><div><strong>1–4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
     {!auth.loading && !auth.authenticated && <AuthPanel auth={auth} onAuthenticated={refreshAll} />}
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
     {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração</button></nav>}

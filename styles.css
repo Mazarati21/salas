@@ -104,8 +104,20 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .creator-form { display: grid; gap: 14px; padding: 18px; }
 .field { display: grid; gap: 6px; color: #30394b; font-size: 11px; font-weight: 800; }
 .big-field input { min-height: 44px; font-size: 14px; font-weight: 650; }
+.channel-builder-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.channel-builder-head > div { display: flex; align-items: baseline; gap: 8px; }
+.channel-builder-head strong { color: var(--ink); font-size: 12px; }
+.channel-builder-head span { color: var(--muted); font-size: 10px; font-weight: 750; }
+.add-channel-button { min-height: 34px; padding: 0 10px; color: var(--blue); background: var(--field); border: 1px solid var(--line-strong); border-radius: 5px; font-size: 10px; font-weight: 850; cursor: pointer; }
+.add-channel-button:hover:not(:disabled) { border-color: var(--blue); }
+.add-channel-button:disabled { cursor: not-allowed; opacity: .45; }
 .password-grid, .channel-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .channel-config { display: grid; gap: 10px; padding: 12px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; }
+.channel-config-head { display: flex; min-height: 24px; align-items: center; justify-content: space-between; gap: 10px; }
+.channel-config-head strong { color: var(--ink); font-size: 11px; }
+.remove-channel-button { display: grid; width: 26px; height: 26px; place-items: center; flex: 0 0 auto; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 4px; font-size: 18px; line-height: 1; cursor: pointer; }
+.remove-channel-button:hover:not(:disabled) { color: var(--red); background: var(--field); border-color: var(--line-strong); }
+.remove-channel-button:disabled { cursor: not-allowed; opacity: .3; }
 .primary-button, .danger-button { min-height: 42px; padding: 0 15px; color: #fff; border-radius: 6px; font-weight: 850; cursor: pointer; transition: background 140ms ease, transform 140ms ease, opacity 140ms ease; }
 .primary-button { background: var(--red); }
 .primary-button:hover:not(:disabled) { background: var(--red-dark); transform: translateY(-1px); }

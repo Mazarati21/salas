@@ -298,12 +298,13 @@ class DataStore {
     try {
       this.db.prepare("UPDATE rooms SET title = ?, updated_at = ? WHERE id = ? AND active = 1")
         .run(title, Date.now(), roomId);
-      const updateChannel = this.db.prepare(`
-        UPDATE room_channels SET name = ?, password_protected = ?
-        WHERE room_id = ? AND position = ?
+      this.db.prepare("DELETE FROM room_channels WHERE room_id = ?").run(roomId);
+      const insertChannel = this.db.prepare(`
+        INSERT INTO room_channels (room_id, position, cid, name, password_protected)
+        VALUES (?, ?, ?, ?, ?)
       `);
       channels.forEach((channel, index) => {
-        updateChannel.run(channel.name, channel.passwordProtected ? 1 : 0, roomId, index);
+        insertChannel.run(roomId, index, Number(channel.cid), channel.name, channel.passwordProtected ? 1 : 0);
       });
       this.db.exec("COMMIT");
     } catch (error) {

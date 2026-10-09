@@ -575,8 +575,11 @@ function sanitizeSubchannelName(value) {
 }
 
 function requestedSubchannelNames(channels, fallbacks = []) {
-  const names = Array.from({ length: 4 }, (_, index) => sanitizeSubchannelName(
-    channels?.[index]?.name || fallbacks[index] || `Convivio ${index + 1}`
+  if (!Array.isArray(channels) || channels.length < 1 || channels.length > 4) {
+    throw new HttpError(400, "Escolhe entre 1 e 4 subsalas.");
+  }
+  const names = channels.map((channel, index) => sanitizeSubchannelName(
+    channel?.name || fallbacks[index] || `Convivio ${index + 1}`
   ));
   if (names.some((name) => !name)) throw new HttpError(400, "Todas as subsalas precisam de um nome válido.");
   if (new Set(names.map((name) => name.toLocaleLowerCase("pt-PT"))).size !== names.length) {
@@ -620,7 +623,7 @@ async function createRoom(payload, session) {
   const title = sanitizeTitle(payload.title);
   if (!title) throw new HttpError(400, "Escreve um nome válido para a sala.");
   const subchannelNames = requestedSubchannelNames(payload.channels);
-  const passwords = Array.from({ length: 4 }, (_, index) => String(payload.channels?.[index]?.password || "").trim().slice(0, 24));
+  const passwords = subchannelNames.map((_, index) => String(payload.channels[index]?.password || "").trim().slice(0, 24));
 
   return withTeamSpeak(async (ts) => {
     const creator = await getSessionClient(ts, session);
@@ -657,7 +660,7 @@ async function createRoom(payload, session) {
 
       const channels = [];
       let previousSubCid = 0;
-      for (let index = 0; index < 4; index += 1) {
+      for (let index = 0; index < subchannelNames.length; index += 1) {
         const channelName = subchannelNames[index];
         const cid = await createChannel(ts, `criar subsala ${index + 1}`, {
           channel_name: `● ${channelName}`,
@@ -714,12 +717,23 @@ async function updateRoom(payload, session) {
   const requestedChannels = Array.isArray(payload.channels) ? payload.channels : [];
   const room = getOwnedRoom(session, payload.id);
   const subchannelNames = requestedSubchannelNames(requestedChannels, room.channels.map((channel) => channel.name));
-  const passwordChanges = Array.from({ length: 4 }, (_, index) => {
+  const savedByCid = new Map(room.channels.map((channel) => [Number(channel.cid), channel]));
+  const requestedCids = requestedChannels.filter((channel) => channel?.cid !== undefined && channel?.cid !== null)
+    .map((channel) => Number(channel.cid));
+  if (requestedCids.some((cid) => !Number.isInteger(cid) || !savedByCid.has(cid))) {
+    throw new HttpError(400, "Uma das subsalas não pertence a esta sala.");
+  }
+  if (new Set(requestedCids).size !== requestedCids.length) {
+    throw new HttpError(400, "A mesma subsala não pode ser utilizada duas vezes.");
+  }
+  const passwordChanges = requestedChannels.map((channel, index) => {
     const action = String(requestedChannels[index]?.passwordAction || "keep");
     const password = String(requestedChannels[index]?.password || "").trim().slice(0, 24);
     if (!["keep", "change", "remove"].includes(action)) {
       throw new HttpError(400, "Ação de palavra-passe inválida.");
     }
+    const existing = channel?.cid !== undefined && channel?.cid !== null;
+    if (!existing && action === "remove") throw new HttpError(400, "Ação de palavra-passe inválida para uma nova subsala.");
     if (action === "change" && !password) {
       throw new HttpError(400, `Escreve a nova palavra-passe de ${subchannelNames[index]}.`);
     }
@@ -727,26 +741,56 @@ async function updateRoom(payload, session) {
   });
 
   return withTeamSpeak(async (ts) => {
-    await getSessionClient(ts, session);
+    const creator = await getSessionClient(ts, session);
     await ts.command("renomear sala principal", `channeledit cid=${room.teamspeak.parentCid} channel_name=${tsEscape(titleSpacerName(title))}`);
     const updatedChannels = [];
-    for (let index = 0; index < 4; index += 1) {
-      const saved = room.channels[index];
-      if (!saved?.cid) continue;
-      const channelName = subchannelNames[index];
-      const { action, password } = passwordChanges[index];
-      const passwordPart = action === "keep" ? "" : ` channel_password=${tsEscape(action === "remove" ? "" : password)}`;
-      await ts.command(
-        `atualizar subsala ${index + 1}`,
-        `channeledit cid=${saved.cid} channel_name=${tsEscape(`● ${channelName}`)}${passwordPart}`
-      );
-      updatedChannels.push({
-        cid: saved.cid,
-        name: channelName,
-        passwordProtected: action === "keep" ? saved.passwordProtected : action === "change"
-      });
+    const createdCids = [];
+    let previousSubCid = 0;
+    try {
+      for (let index = 0; index < requestedChannels.length; index += 1) {
+        const requested = requestedChannels[index];
+        const saved = requested?.cid !== undefined && requested?.cid !== null
+          ? savedByCid.get(Number(requested.cid))
+          : null;
+        const channelName = subchannelNames[index];
+        const { action, password } = passwordChanges[index];
+        let cid;
+        if (saved) {
+          const passwordPart = action === "keep" ? "" : ` channel_password=${tsEscape(action === "remove" ? "" : password)}`;
+          cid = Number(saved.cid);
+          await ts.command(
+            `atualizar subsala ${index + 1}`,
+            `channeledit cid=${cid} channel_name=${tsEscape(`● ${channelName}`)} channel_order=${previousSubCid}${passwordPart}`
+          );
+        } else {
+          cid = await createChannel(ts, `adicionar subsala ${index + 1}`, {
+            channel_name: `● ${channelName}`,
+            channel_flag_permanent: 1,
+            cpid: room.teamspeak.parentCid,
+            channel_order: previousSubCid,
+            channel_password: action === "change" ? password : ""
+          });
+          createdCids.push(cid);
+          await giveChannelAdmin(ts, creator, [cid]);
+        }
+        updatedChannels.push({
+          cid,
+          name: channelName,
+          passwordProtected: saved && action === "keep" ? saved.passwordProtected : action === "change"
+        });
+        previousSubCid = cid;
+      }
+      const retainedCids = new Set(updatedChannels.map((channel) => Number(channel.cid)));
+      for (const removed of room.channels.filter((channel) => !retainedCids.has(Number(channel.cid)))) {
+        await ts.command("remover subsala", `channeldelete cid=${Number(removed.cid)} force=1`);
+      }
+      return serializeRoom(store.updateRoom(room.id, title, updatedChannels));
+    } catch (error) {
+      for (const cid of createdCids.reverse()) {
+        await ts.command("reverter nova subsala", `channeldelete cid=${cid} force=1`).catch(() => {});
+      }
+      throw error;
     }
-    return serializeRoom(store.updateRoom(room.id, title, updatedChannels));
   });
 }
 

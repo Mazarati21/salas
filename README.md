@@ -1,15 +1,15 @@
 # LegendZ TeamSpeak Panel
 
-Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e criar uma sala permanente com quatro subsalas.
+Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e criar uma sala permanente com até quatro subsalas.
 
 ## Funcionalidades
 
 - Autenticação por código privado enviado ao cliente TeamSpeak ligado.
 - Sessões `HttpOnly`, `SameSite=Strict`, ligadas ao IP e ao browser, com proteção CSRF.
 - Uma sala ativa por `client_database_id`, garantida também por restrição SQLite.
-- Channel Admin automático na sala principal e nas quatro subsalas.
+- Channel Admin automático na sala principal e nas subsalas escolhidas.
 - Palavra-passe independente por subsala, com ações explícitas para manter, alterar ou remover.
-- Nome personalizado para cada subsala, editável posteriormente pelo respetivo criador.
+- Entre 1 e 4 subsalas, com nomes personalizados e possibilidade de adicionar ou remover posteriormente.
 - Novas salas expiram automaticamente após 30 dias sem atividade em nenhuma subsala; salas anteriores à funcionalidade ficam preservadas.
 - Ligação ServerQuery persistente, serializada e com reconexão automática.
 - Grupos permitidos definidos no servidor; `Membro` e grupos internos não são expostos.
