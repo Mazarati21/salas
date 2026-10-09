@@ -726,6 +726,8 @@ async function updateRoom(payload, session) {
   if (new Set(requestedCids).size !== requestedCids.length) {
     throw new HttpError(400, "A mesma subsala não pode ser utilizada duas vezes.");
   }
+  const retainedCids = new Set(requestedCids);
+  const removedChannels = room.channels.filter((channel) => !retainedCids.has(Number(channel.cid)));
   const passwordChanges = requestedChannels.map((channel, index) => {
     const action = String(requestedChannels[index]?.passwordAction || "keep");
     const password = String(requestedChannels[index]?.password || "").trim().slice(0, 24);
@@ -745,8 +747,16 @@ async function updateRoom(payload, session) {
     await ts.command("renomear sala principal", `channeledit cid=${room.teamspeak.parentCid} channel_name=${tsEscape(titleSpacerName(title))}`);
     const updatedChannels = [];
     const createdCids = [];
+    const temporarilyRenamed = [];
     let previousSubCid = 0;
     try {
+      for (const removed of removedChannels) {
+        await ts.command(
+          "preparar remoção de subsala",
+          `channeledit cid=${Number(removed.cid)} channel_name=${tsEscape(`● __remover_${crypto.randomBytes(4).toString("hex")}`)}`
+        );
+        temporarilyRenamed.push(removed);
+      }
       for (let index = 0; index < requestedChannels.length; index += 1) {
         const requested = requestedChannels[index];
         const saved = requested?.cid !== undefined && requested?.cid !== null
@@ -756,11 +766,12 @@ async function updateRoom(payload, session) {
         const { action, password } = passwordChanges[index];
         let cid;
         if (saved) {
+          const namePart = channelName === saved.name ? "" : ` channel_name=${tsEscape(`● ${channelName}`)}`;
           const passwordPart = action === "keep" ? "" : ` channel_password=${tsEscape(action === "remove" ? "" : password)}`;
           cid = Number(saved.cid);
           await ts.command(
             `atualizar subsala ${index + 1}`,
-            `channeledit cid=${cid} channel_name=${tsEscape(`● ${channelName}`)} channel_order=${previousSubCid}${passwordPart}`
+            `channeledit cid=${cid}${namePart} channel_order=${previousSubCid}${passwordPart}`
           );
         } else {
           cid = await createChannel(ts, `adicionar subsala ${index + 1}`, {
@@ -780,14 +791,19 @@ async function updateRoom(payload, session) {
         });
         previousSubCid = cid;
       }
-      const retainedCids = new Set(updatedChannels.map((channel) => Number(channel.cid)));
-      for (const removed of room.channels.filter((channel) => !retainedCids.has(Number(channel.cid)))) {
+      for (const removed of removedChannels) {
         await ts.command("remover subsala", `channeldelete cid=${Number(removed.cid)} force=1`);
       }
       return serializeRoom(store.updateRoom(room.id, title, updatedChannels));
     } catch (error) {
       for (const cid of createdCids.reverse()) {
         await ts.command("reverter nova subsala", `channeldelete cid=${cid} force=1`).catch(() => {});
+      }
+      for (const removed of temporarilyRenamed) {
+        await ts.command(
+          "repor nome da subsala",
+          `channeledit cid=${Number(removed.cid)} channel_name=${tsEscape(`● ${removed.name}`)}`
+        ).catch(() => {});
       }
       throw error;
     }

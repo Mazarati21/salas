@@ -241,6 +241,8 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .admin-table .empty-table { padding: 20px 14px; color: var(--muted); text-align: center; }
 .audit-table th:first-child { width: 150px; }
 .audit-table th:last-child { width: 90px; }
+.audit-result { display: grid; gap: 5px; justify-items: start; }
+.audit-result small { max-width: 260px; color: var(--muted); font-size: 9px; line-height: 1.35; white-space: normal; }
 .admin-updated { margin: -2px 2px 0; color: var(--muted); font-size: 9px; text-align: right; }
 .admin-loading { margin-top: 12px; }
 .admin-unavailable { display: grid; justify-items: start; gap: 8px; margin-top: 12px; padding: 26px; }

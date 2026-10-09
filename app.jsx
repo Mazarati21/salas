@@ -220,6 +220,12 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
+function auditFailureMessage(entry) {
+  const message = String(entry.details?.message || "").replace(/\\s/g, " ");
+  if (/error id=771\b/.test(message)) return "O nome do canal já está a ser utilizado.";
+  return message;
+}
+
 function formatBytes(value) {
   const bytes = Number(value) || 0;
   if (bytes < 1024) return `${bytes} B`;
@@ -283,7 +289,7 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
       </section>
       <section className="panel admin-section audit-section">
         <div className="admin-section-head"><div><p className="eyebrow">Registo recente</p><h3>Auditoria</h3></div><span className="badge">Últimos {data.audit?.length || 0}</span></div>
-        <div className="admin-table-wrap"><table className="admin-table audit-table"><thead><tr><th>Data</th><th>Utilizador</th><th>Ação</th><th>Rede</th><th>Resultado</th></tr></thead><tbody>{(data.audit || []).map((entry) => <tr key={entry.id}><td>{formatDate(entry.createdAt)}</td><td><strong>{entry.nickname || "Visitante"}</strong>{entry.databaseId && <small>DB #{entry.databaseId}</small>}</td><td>{auditLabels[entry.action] || entry.action}</td><td>{entry.ip}</td><td><span className={`status-chip ${entry.success ? "is-success" : "is-danger"}`} title={entry.details?.message || ""}>{entry.success ? "Concluído" : "Falhou"}</span></td></tr>)}{!data.audit?.length && <tr><td colSpan="5" className="empty-table">Ainda não existem registos de auditoria.</td></tr>}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table audit-table"><thead><tr><th>Data</th><th>Utilizador</th><th>Ação</th><th>Rede</th><th>Resultado</th></tr></thead><tbody>{(data.audit || []).map((entry) => { const failureMessage = !entry.success && auditFailureMessage(entry); return <tr key={entry.id}><td>{formatDate(entry.createdAt)}</td><td><strong>{entry.nickname || "Visitante"}</strong>{entry.databaseId && <small>DB #{entry.databaseId}</small>}</td><td>{auditLabels[entry.action] || entry.action}</td><td>{entry.ip}</td><td><span className="audit-result"><span className={`status-chip ${entry.success ? "is-success" : "is-danger"}`}>{entry.success ? "Concluído" : "Falhou"}</span>{failureMessage && <small>{failureMessage}</small>}</span></td></tr>; })}{!data.audit?.length && <tr><td colSpan="5" className="empty-table">Ainda não existem registos de auditoria.</td></tr>}</tbody></table></div>
       </section>
     </div>
     <p className="admin-updated">Dados atualizados em {formatDate(data.fetchedAt)}.</p>
