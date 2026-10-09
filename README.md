@@ -10,6 +10,7 @@ Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e cr
 - Channel Admin automático na sala principal e nas quatro subsalas.
 - Palavra-passe independente por subsala, com ações explícitas para manter, alterar ou remover.
 - Nome personalizado para cada subsala, editável posteriormente pelo respetivo criador.
+- Novas salas expiram automaticamente após 30 dias sem atividade em nenhuma subsala; salas anteriores à funcionalidade ficam preservadas.
 - Ligação ServerQuery persistente, serializada e com reconexão automática.
 - Grupos permitidos definidos no servidor; `Membro` e grupos internos não são expostos.
 - SQLite persistente para salas, sessões, desafios, limites e auditoria.
@@ -54,6 +55,7 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 - `SESSION_SECRET` com pelo menos 32 caracteres aleatórios
 - todas as variáveis `TS_*` com os valores de produção
 - `TS_ADMIN_GROUP_IDS=114,232,234,326,1266`, ou outra lista separada por vírgulas com os IDs dos grupos autorizados a abrir a área administrativa
+- `ROOM_INACTIVITY_DAYS=30` e `ROOM_ACTIVITY_CHECK_MINUTES=60` para a política de inatividade das novas salas
 
 Não cries `ALLOW_LOCAL_QUERY_OWNER_FALLBACK` em produção. O cPanel fornece `PORT` automaticamente; utiliza esse valor em vez de fixar uma porta manualmente.
 

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const initSqlJs = require("sql.js");
 const { DataStore } = require("../tools/data-store");
 
 async function withStore(work) {
@@ -19,6 +20,7 @@ function sampleRoom(overrides = {}) {
     creatorDatabaseId: overrides.creatorDatabaseId || 42,
     creatorNickname: "Tester",
     title: "Sala segura",
+    autoExpire: overrides.autoExpire === true,
     teamspeak: { topLineCid: 100, parentCid: 101, bottomLineCid: 902 },
     channels: [1, 2, 3, 4].map((position) => ({
       cid: 101 + position,
@@ -46,6 +48,50 @@ test("enforces one active room per TeamSpeak database user", () => withStore((st
   store.markRoomInactive("room-1");
   assert.doesNotThrow(() => store.insertRoom(sampleRoom({ id: "room-2" })));
 }));
+
+test("only tracks inactivity for newly opted-in rooms", () => withStore((store) => {
+  const legacy = store.insertRoom(sampleRoom());
+  assert.equal(legacy.autoExpire, false);
+  assert.equal(legacy.lastActivityAt, legacy.createdAt);
+
+  store.markRoomInactive(legacy.id);
+  const created = store.insertRoom(sampleRoom({ id: "managed-room", creatorDatabaseId: 77, autoExpire: true }));
+  assert.equal(created.autoExpire, true);
+  assert.equal(created.lastActivityAt, created.createdAt);
+
+  const activityAt = created.lastActivityAt + 60_000;
+  const touched = store.touchRoomActivity(created.id, activityAt);
+  assert.equal(touched.lastActivityAt, activityAt);
+  store.touchRoomActivity(created.id, activityAt - 30_000);
+  assert.equal(store.getActiveRoomById(created.id).lastActivityAt, activityAt);
+}));
+
+test("migrates existing rooms without enabling automatic expiry", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "legendz-legacy-store-"));
+  try {
+    const SQL = await initSqlJs({ locateFile: (file) => require.resolve(`sql.js/dist/${file}`) });
+    const database = new SQL.Database();
+    database.run(`
+      CREATE TABLE rooms (
+        id TEXT PRIMARY KEY, active INTEGER NOT NULL, creator_database_id INTEGER NOT NULL,
+        creator_nickname TEXT NOT NULL, title TEXT NOT NULL, top_line_cid INTEGER NOT NULL,
+        parent_cid INTEGER NOT NULL, bottom_line_cid INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      INSERT INTO rooms VALUES ('legacy-room', 1, 42, 'Tester', 'Sala antiga', 100, 101, 902, 1000, 1000);
+    `);
+    fs.writeFileSync(path.join(directory, "legendz.sqlite"), Buffer.from(database.export()));
+    database.close();
+
+    const store = await DataStore.open(directory);
+    try {
+      const room = store.getActiveRoomById("legacy-room");
+      assert.equal(room.autoExpire, false);
+      assert.equal(room.lastActivityAt, 1000);
+      assert.equal(store.getAutoExpiringRooms().length, 0);
+    } finally { store.close(); }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
 
 test("stores, resolves and revokes sessions", () => withStore((store) => {
   const now = Date.now();

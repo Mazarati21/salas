@@ -5,6 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-utils");
 const { DataStore } = require("./tools/data-store");
+const { isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
 
@@ -18,6 +19,11 @@ const allowApiClients = process.env.ALLOW_API_CLIENTS === "1";
 const cookieSecure = isProduction || process.env.COOKIE_SECURE === "1";
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const challengeLifetimeMs = 5 * 60 * 1000;
+const configuredRoomInactivityDays = Number(process.env.ROOM_INACTIVITY_DAYS || 30);
+const configuredActivityCheckMinutes = Number(process.env.ROOM_ACTIVITY_CHECK_MINUTES || 60);
+const roomInactivityDays = Number.isFinite(configuredRoomInactivityDays) && configuredRoomInactivityDays > 0 ? configuredRoomInactivityDays : 30;
+const roomInactivityMs = roomInactivityDays * 24 * 60 * 60 * 1000;
+const roomActivityCheckMs = (Number.isFinite(configuredActivityCheckMinutes) && configuredActivityCheckMinutes > 0 ? configuredActivityCheckMinutes : 60) * 60 * 1000;
 const tempSpacerCid = Number(process.env.TS_TEMP_SPACER_CID || 902);
 const channelAdminGroupId = Number(process.env.TS_CHANNEL_ADMIN_GROUP_ID || 49);
 const adminGroupIds = new Set(String(process.env.TS_ADMIN_GROUP_IDS || "114,232,234,326,1266").split(",").map(Number).filter(Number.isFinite));
@@ -675,6 +681,8 @@ async function createRoom(payload, session) {
         creatorDatabaseId: creator.databaseId,
         creatorNickname: creator.nickname,
         title,
+        autoExpire: true,
+        lastActivityAt: Date.now(),
         teamspeak: { topLineCid, parentCid, bottomLineCid: protectedThinSeparatorCid },
         channels
       });
@@ -789,6 +797,58 @@ async function revokeSessionsAsFounder(payload, session) {
   const revoked = store.revokeSessionsByDatabaseId(databaseId);
   if (!revoked) throw new HttpError(404, "Não existem sessões ativas para este utilizador.");
   return { revoked };
+}
+
+let roomActivitySweepRunning = false;
+async function sweepInactiveRooms() {
+  if (!store || roomActivitySweepRunning) return;
+  const managedRooms = store.getAutoExpiringRooms();
+  if (!managedRooms.length) return;
+  roomActivitySweepRunning = true;
+  try {
+    await withTeamSpeak(async (ts) => {
+      const now = Date.now();
+      const channels = parseItems(await ts.command("verificar atividade das salas", "channellist -secondsempty"));
+      const byId = new Map(channels.map((channel) => [Number(channel.cid), channel]));
+
+      for (const room of managedRooms) {
+        if (!byId.has(Number(room.teamspeak.parentCid))) {
+          store.markRoomInactive(room.id);
+          continue;
+        }
+        const lastActivityAt = observedRoomActivityAt(room, byId, now);
+        if (lastActivityAt === null) continue;
+        if (lastActivityAt > Number(room.lastActivityAt || 0)) store.touchRoomActivity(room.id, lastActivityAt);
+        if (!isRoomExpired(lastActivityAt, now, roomInactivityMs)) continue;
+
+        try {
+          await deleteStoredRoom(ts, room);
+          store.audit({
+            databaseId: room.creatorDatabaseId,
+            nickname: room.creatorNickname,
+            ip: "system",
+            action: "room.auto_delete",
+            target: room.id,
+            success: true,
+            details: { inactivityDays: roomInactivityDays }
+          });
+        } catch (error) {
+          store.audit({
+            databaseId: room.creatorDatabaseId,
+            nickname: room.creatorNickname,
+            ip: "system",
+            action: "room.auto_delete",
+            target: room.id,
+            success: false,
+            details: { message: String(error?.message || error) }
+          });
+          console.error(`Falha ao expirar a sala ${room.id}:`, error);
+        }
+      }
+    });
+  } finally {
+    roomActivitySweepRunning = false;
+  }
 }
 
 async function auditAction(request, session, action, target, work) {
@@ -923,6 +983,9 @@ async function getAdminOverview(request) {
     creator: { databaseId: room.creatorDatabaseId, nickname: room.creatorNickname },
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
+    autoExpire: room.autoExpire,
+    lastActivityAt: room.lastActivityAt,
+    expiresAt: room.autoExpire ? room.lastActivityAt + roomInactivityMs : null,
     channelCount: room.channels.length + 1,
     synchronized: [room.teamspeak.topLineCid, room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)]
       .every((cid) => teamSpeakState.channelIds.has(Number(cid)))
@@ -1167,9 +1230,15 @@ start().catch((error) => {
 
 const cleanupTimer = setInterval(() => store.cleanup(), 60 * 60 * 1000);
 cleanupTimer.unref();
+const initialRoomActivityTimer = setTimeout(() => sweepInactiveRooms().catch((error) => console.error("Falha ao verificar salas inativas:", error)), 45_000);
+initialRoomActivityTimer.unref();
+const roomActivityTimer = setInterval(() => sweepInactiveRooms().catch((error) => console.error("Falha ao verificar salas inativas:", error)), roomActivityCheckMs);
+roomActivityTimer.unref();
 
 function shutdown() {
   clearInterval(cleanupTimer);
+  clearTimeout(initialRoomActivityTimer);
+  clearInterval(roomActivityTimer);
   server.close(() => {
     teamSpeak.close();
     if (store) store.close();

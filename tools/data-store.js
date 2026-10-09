@@ -83,6 +83,7 @@ class DataStore {
     this.db = new PersistentDatabase(SQL, this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON");
     this.createSchema();
+    this.migrateRoomActivitySchema();
     this.migrateLegacyRooms(path.join(dataDir, "rooms.json"));
   }
 
@@ -97,6 +98,8 @@ class DataStore {
         top_line_cid INTEGER NOT NULL,
         parent_cid INTEGER NOT NULL,
         bottom_line_cid INTEGER NOT NULL,
+        auto_expire INTEGER NOT NULL DEFAULT 0,
+        last_activity_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -161,6 +164,12 @@ class DataStore {
     `);
   }
 
+  migrateRoomActivitySchema() {
+    const columns = new Set(this.db.prepare("PRAGMA table_info(rooms)").all().map((column) => column.name));
+    if (!columns.has("auto_expire")) this.db.exec("ALTER TABLE rooms ADD COLUMN auto_expire INTEGER NOT NULL DEFAULT 0");
+    if (!columns.has("last_activity_at")) this.db.exec("ALTER TABLE rooms ADD COLUMN last_activity_at INTEGER");
+  }
+
   migrateLegacyRooms(filePath) {
     const count = Number(this.db.prepare("SELECT COUNT(*) AS count FROM rooms").get().count);
     if (count || !fs.existsSync(filePath)) return;
@@ -216,6 +225,8 @@ class DataStore {
       creatorDatabaseId: Number(row.creator_database_id),
       creatorNickname: row.creator_nickname,
       title: row.title,
+      autoExpire: Boolean(row.auto_expire),
+      lastActivityAt: Number(row.last_activity_at || row.created_at || 0),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
       teamspeak: {
@@ -249,8 +260,9 @@ class DataStore {
       this.db.prepare(`
         INSERT INTO rooms (
           id, active, creator_database_id, creator_nickname, title,
-          top_line_cid, parent_cid, bottom_line_cid, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          top_line_cid, parent_cid, bottom_line_cid, auto_expire,
+          last_activity_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         room.id,
         room.active === false ? 0 : 1,
@@ -260,6 +272,8 @@ class DataStore {
         Number(room.teamspeak.topLineCid),
         Number(room.teamspeak.parentCid),
         Number(room.teamspeak.bottomLineCid),
+        room.autoExpire === true ? 1 : 0,
+        room.autoExpire === true ? Number(room.lastActivityAt || now) : null,
         now,
         now
       );
@@ -301,6 +315,21 @@ class DataStore {
 
   markRoomInactive(id) {
     this.db.prepare("UPDATE rooms SET active = 0, updated_at = ? WHERE id = ?").run(Date.now(), String(id));
+  }
+
+  getAutoExpiringRooms() {
+    return this.db.prepare("SELECT * FROM rooms WHERE active = 1 AND auto_expire = 1 ORDER BY last_activity_at").all()
+      .map((row) => this.roomFromRow(row));
+  }
+
+  touchRoomActivity(id, activityAt = Date.now()) {
+    const timestamp = Number(activityAt);
+    this.db.prepare(`
+      UPDATE rooms SET last_activity_at = ?
+      WHERE id = ? AND active = 1 AND auto_expire = 1
+        AND (last_activity_at IS NULL OR last_activity_at < ?)
+    `).run(timestamp, String(id), timestamp);
+    return this.getActiveRoomById(id);
   }
 
   markMissingRoomsInactive(existingParentCids) {
