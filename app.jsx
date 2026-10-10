@@ -342,7 +342,10 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
 }
 
 function Footer() {
-  return <footer className="footer">Copyright © {new Date().getFullYear()} realizado com <span className="heart">♥</span> por <a href="https://steamcommunity.com/id/mazarati21" target="_blank" rel="noreferrer">Mazarati</a>{" | "}<a href="https://legendzcommunity.com/" target="_blank" rel="noreferrer">legendzcommunity.com</a></footer>;
+  return <footer className="footer">
+    <a className="footer-brand" href="/" aria-label="LegendZ Community, início"><span className="brand-mark">LZ</span><span><strong>LegendZ</strong><small>Community Network</small></span></a>
+    <p>Copyright © {new Date().getFullYear()} realizado com <span className="heart">♥</span> por <a href="https://steamcommunity.com/id/mazarati21" target="_blank" rel="noreferrer">Mazarati</a>{" · "}<a href="https://legendzcommunity.com/" target="_blank" rel="noreferrer">legendzcommunity.com</a></p>
+  </footer>;
 }
 
 function App() {
