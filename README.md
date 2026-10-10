@@ -1,6 +1,6 @@
 # LegendZ TeamSpeak Panel
 
-Painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e criar uma sala permanente com até quatro subsalas.
+Website LegendZ e painel web para autenticar utilizadores através do TeamSpeak, gerir grupos e criar uma sala permanente com até quatro subsalas.
 
 ## Funcionalidades
 
@@ -60,6 +60,15 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 Não cries `ALLOW_LOCAL_QUERY_OWNER_FALLBACK` em produção. O cPanel fornece `PORT` automaticamente; utiliza esse valor em vez de fixar uma porta manualmente.
 
 Depois do clone ou atualização executa `npm ci`, confirma que `data/` pode ser escrita pelo utilizador da aplicação e reinicia a aplicação no cPanel. O JavaScript do browser já segue compilado no Git; `npm run build` só é necessário quando `app.jsx` for alterado.
+
+### Superfícies públicas
+
+- `homepage/index.html`: página inicial em `/`.
+- `status/index.html`: telemetria pública em `/status/`.
+- `bans/index.html`: registos disciplinares públicos em `/bans/`.
+- `public/legendz.css`, `public/legendz.js` e `public/legendz-theme.js`: sistema visual e comportamento partilhados.
+
+As páginas públicas obtêm os dados exclusivamente através dos endpoints de leitura `/salas/api/status` e `/salas/api/bans`. O deployment copia estes ficheiros para `public_html` e reinicia a aplicação Node.
 
 O alojamento tem de permitir ligações TCP de saída para a porta ServerQuery e para a porta de transferência de ficheiros do TeamSpeak, usada para os ícones. A conta Query deve aceitar apenas o IP público do alojamento.
 

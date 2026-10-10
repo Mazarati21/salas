@@ -97,7 +97,7 @@ function securityHeaders() {
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     "Origin-Agent-Cluster": "?1",
@@ -197,6 +197,12 @@ function assertRequestAllowed(request, pathname) {
 
 function readBody(request) {
   return new Promise((resolve, reject) => {
+    const declaredLength = Number(request.headers["content-length"] || 0);
+    if (Number.isFinite(declaredLength) && declaredLength > 25_000) {
+      reject(new HttpError(413, "Pedido demasiado grande."));
+      request.resume();
+      return;
+    }
     let body = "";
     let finished = false;
     request.on("data", (chunk) => {
@@ -226,7 +232,11 @@ function parseCookies(request) {
   return Object.fromEntries(String(request.headers.cookie || "").split(";").map((part) => {
     const index = part.indexOf("=");
     if (index < 0) return ["", ""];
-    return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
+    try {
+      return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
+    } catch {
+      return ["", ""];
+    }
   }).filter(([key]) => key));
 }
 
@@ -1087,6 +1097,18 @@ async function handleApi(request, response, pathname) {
   try {
     assertRequestAllowed(request, pathname);
 
+    const allowedMethods = new Map([
+      ["/api/status", ["GET"]], ["/api/bans", ["GET"]], ["/api/auth/status", ["GET"]],
+      ["/api/auth/challenge", ["POST"]], ["/api/auth/verify", ["POST"]], ["/api/auth/logout", ["POST"]],
+      ["/api/groups", ["GET", "POST"]], ["/api/rooms", ["POST", "PATCH", "DELETE"]],
+      ["/api/admin/overview", ["GET"]], ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
+    ]);
+    const routeMethods = allowedMethods.get(pathname);
+    if (routeMethods && !routeMethods.includes(request.method)) {
+      sendJson(response, 405, { ok: false, error: "Método não permitido." }, { Allow: routeMethods.join(", ") });
+      return;
+    }
+
     if (pathname === "/api/status" && request.method === "GET") {
       let teamSpeakOnline = true;
       let metrics = null;
@@ -1242,7 +1264,7 @@ function serveStatic(response, pathname) {
     response.writeHead(200, {
       ...securityHeaders(),
       "Content-Type": mimeTypes[path.extname(safePath)] || "application/octet-stream",
-      "Cache-Control": safePath === "index.html" ? "no-store" : "public, max-age=3600"
+      "Cache-Control": safePath === "index.html" ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800"
     });
     response.end(data);
   });

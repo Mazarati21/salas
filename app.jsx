@@ -22,14 +22,23 @@ async function api(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const headers = { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  const response = await fetch(`${appBasePath}${path}`, { credentials: "same-origin", ...options, headers });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    const error = new Error(payload.error || "Não foi possível concluir o pedido.");
-    error.status = response.status;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${appBasePath}${path}`, { credentials: "same-origin", cache: "no-store", ...options, headers, signal: controller.signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      const error = new Error(payload.error || "Não foi possível concluir o pedido.");
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("O servidor demorou demasiado a responder. Tenta novamente.");
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return payload;
 }
 
 function StatusPill({ auth }) {
@@ -44,7 +53,7 @@ function StatusPill({ auth }) {
 }
 
 function ThemeToggle({ theme, onToggle }) {
-  return <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Ativar modo ${theme === "dark" ? "claro" : "escuro"}`}>{theme === "dark" ? "Modo claro" : "Modo escuro"}</button>;
+  return <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Ativar modo ${theme === "dark" ? "claro" : "escuro"}`} title="Alternar tema"><span aria-hidden="true">◐</span><span>Tema</span></button>;
 }
 
 function Message({ message }) {
@@ -423,7 +432,11 @@ function App() {
 
   const enabled = auth.authenticated && auth.connected;
   return <main className="app-shell">
-    <header className="hero"><div className="brand-lockup"><span className="brand-mark">LZ</span><div><p className="eyebrow">LegendZ Community</p><h1>Painel TeamSpeak</h1></div></div><div className="header-actions"><ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />{auth.authenticated && <button className="logout-button" type="button" onClick={logout}>Terminar sessão</button>}<StatusPill auth={auth} /></div></header>
+    <header className="hero">
+      <a className="brand-lockup" href="/" aria-label="LegendZ Community, início"><span className="brand-mark">LZ</span><div><p className="eyebrow">LegendZ Community</p><h1>Control Center</h1></div></a>
+      <nav className="panel-links" aria-label="Navegação LegendZ"><a href="/">Início</a><a href="/status/">Estado</a><a href="/bans/">Bans</a></nav>
+      <div className="header-actions"><ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />{auth.authenticated && <button className="logout-button" type="button" onClick={logout}>Sair</button>}<StatusPill auth={auth} /></div>
+    </header>
     <section className="intro-bar" aria-label="Resumo do painel"><div><strong>1–4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
     {!auth.loading && !auth.authenticated && <AuthPanel auth={auth} onAuthenticated={refreshAll} />}
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
