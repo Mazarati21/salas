@@ -226,6 +226,45 @@ function auditFailureMessage(entry) {
   return message;
 }
 
+function auditActionKind(action) {
+  if (String(action).startsWith("room.") || String(action).startsWith("admin.room.")) return "room";
+  if (String(action).startsWith("auth.") || String(action).startsWith("admin.session.")) return "access";
+  if (String(action).startsWith("groups.")) return "group";
+  return "system";
+}
+
+function AuditLog({ entries = [] }) {
+  const [filter, setFilter] = useState("all");
+  const counts = {
+    all: entries.length,
+    failures: entries.filter((entry) => !entry.success).length,
+    rooms: entries.filter((entry) => auditActionKind(entry.action) === "room").length
+  };
+  const filteredEntries = entries.filter((entry) => {
+    if (filter === "failures") return !entry.success;
+    if (filter === "rooms") return auditActionKind(entry.action) === "room";
+    return true;
+  });
+  const filters = [{ key: "all", label: "Todos" }, { key: "failures", label: "Falhas" }, { key: "rooms", label: "Salas" }];
+
+  return <section className="panel admin-section audit-section">
+    <div className="admin-section-head audit-section-head"><div><p className="eyebrow">Registo recente</p><h3>Auditoria</h3></div><span className="badge">{entries.length} eventos</span></div>
+    <div className="audit-toolbar" role="group" aria-label="Filtrar auditoria">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}><span>{item.label}</span><b>{counts[item.key]}</b></button>)}</div>
+    <div className="audit-feed" role="list">{filteredEntries.map((entry) => {
+      const failureMessage = !entry.success && auditFailureMessage(entry);
+      const kind = auditActionKind(entry.action);
+      return <div className={`audit-entry ${entry.success ? "is-success" : "is-failure"}`} role="listitem" key={entry.id}>
+        <span className={`audit-event-icon is-${kind}`} aria-hidden="true">{entry.success ? "✓" : "!"}</span>
+        <div className="audit-entry-body">
+          <div className="audit-entry-title"><strong>{auditLabels[entry.action] || entry.action}</strong><span className={`audit-outcome ${entry.success ? "is-success" : "is-failure"}`}>{entry.success ? "Concluído" : "Falhou"}</span></div>
+          <div className="audit-entry-meta"><span className="audit-actor">{entry.nickname || "Visitante"}</span>{entry.databaseId && <span>DB #{entry.databaseId}</span>}<span>{entry.ip}</span><time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time></div>
+          {failureMessage && <div className="audit-error-detail"><strong>Motivo</strong><span>{failureMessage}</span>{entry.details?.status && <code>HTTP {entry.details.status}</code>}</div>}
+        </div>
+      </div>;
+    })}{!filteredEntries.length && <div className="audit-empty"><strong>Sem registos neste filtro</strong><span>Os novos eventos vão aparecer aqui automaticamente.</span></div>}</div>
+  </section>;
+}
+
 function formatBytes(value) {
   const bytes = Number(value) || 0;
   if (bytes < 1024) return `${bytes} B`;
@@ -287,10 +326,7 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
         <div className="admin-section-head"><div><p className="eyebrow">TeamSpeak</p><h3>Salas permanentes</h3></div><span className="badge">{data.rooms?.length || 0}</span></div>
         <div className="room-status-list">{(data.rooms || []).map((item) => <div key={item.id}><span><strong>{item.title}</strong><small>{item.creator?.nickname || "Utilizador"} · {item.channelCount} canais · {item.autoExpire ? `expira ${formatDate(item.expiresAt)}` : "sem expiração automática"}</small></span><span className="room-admin-controls"><span className={`status-chip ${item.synchronized ? "is-success" : "is-danger"}`}>{item.synchronized ? "Sincronizada" : "Rever"}</span>{canManage && <button className="table-action is-danger" type="button" disabled={Boolean(actionBusy)} onClick={() => window.confirm(`Apagar permanentemente a sala “${item.title}” e os respetivos canais do TeamSpeak?`) && onDeleteRoom(item)}>{actionBusy === `room:${item.id}` ? "A apagar..." : "Apagar"}</button>}</span></div>)}{!data.rooms?.length && <p className="empty-admin-row">Ainda não existem salas permanentes.</p>}</div>
       </section>
-      <section className="panel admin-section audit-section">
-        <div className="admin-section-head"><div><p className="eyebrow">Registo recente</p><h3>Auditoria</h3></div><span className="badge">Últimos {data.audit?.length || 0}</span></div>
-        <div className="admin-table-wrap"><table className="admin-table audit-table"><thead><tr><th>Data</th><th>Utilizador</th><th>Ação</th><th>Rede</th><th>Resultado</th></tr></thead><tbody>{(data.audit || []).map((entry) => { const failureMessage = !entry.success && auditFailureMessage(entry); return <tr key={entry.id}><td>{formatDate(entry.createdAt)}</td><td><strong>{entry.nickname || "Visitante"}</strong>{entry.databaseId && <small>DB #{entry.databaseId}</small>}</td><td>{auditLabels[entry.action] || entry.action}</td><td>{entry.ip}</td><td><span className="audit-result"><span className={`status-chip ${entry.success ? "is-success" : "is-danger"}`}>{entry.success ? "Concluído" : "Falhou"}</span>{failureMessage && <small>{failureMessage}</small>}</span></td></tr>; })}{!data.audit?.length && <tr><td colSpan="5" className="empty-table">Ainda não existem registos de auditoria.</td></tr>}</tbody></table></div>
-      </section>
+      <AuditLog entries={data.audit || []} />
     </div>
     <p className="admin-updated">Dados atualizados em {formatDate(data.fetchedAt)}.</p>
   </div>;
