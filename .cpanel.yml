@@ -11,6 +11,7 @@ deployment:
     - /bin/cp -f homepage/index.html /home/legendzc/public_html/index.html
     - /bin/cp -f status/index.html /home/legendzc/public_html/status/index.html
     - /bin/cp -f bans/index.html /home/legendzc/public_html/bans/index.html
+    - /bin/cp -f bans/.htaccess /home/legendzc/public_html/bans/.htaccess
     - /bin/cp -f public/legendz.css public/legendz.js public/legendz-theme.js /home/legendzc/public_html/
     - /bin/bash -lc 'source /home/legendzc/nodevenv/salas/20/bin/activate && cd /home/legendzc/salas && npm ci --omit=dev'
     - /usr/bin/touch /home/legendzc/salas/tmp/restart.txt
