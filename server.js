@@ -5,7 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-utils");
 const { DataStore } = require("./tools/data-store");
-const { isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
+const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
 
@@ -24,6 +24,10 @@ const configuredActivityCheckMinutes = Number(process.env.ROOM_ACTIVITY_CHECK_MI
 const roomInactivityDays = Number.isFinite(configuredRoomInactivityDays) && configuredRoomInactivityDays > 0 ? configuredRoomInactivityDays : 30;
 const roomInactivityMs = roomInactivityDays * 24 * 60 * 60 * 1000;
 const roomActivityCheckMs = (Number.isFinite(configuredActivityCheckMinutes) && configuredActivityCheckMinutes > 0 ? configuredActivityCheckMinutes : 60) * 60 * 1000;
+const configuredHealthCheckMinutes = Number(process.env.HEALTH_CHECK_MINUTES || 5);
+const healthCheckMs = (Number.isFinite(configuredHealthCheckMinutes) && configuredHealthCheckMinutes > 0 ? configuredHealthCheckMinutes : 5) * 60 * 1000;
+const configuredAuthFailureThreshold = Number(process.env.AUTH_FAILURE_ALERT_THRESHOLD || 5);
+const authFailureAlertThreshold = Number.isFinite(configuredAuthFailureThreshold) && configuredAuthFailureThreshold > 0 ? configuredAuthFailureThreshold : 5;
 const tempSpacerCid = Number(process.env.TS_TEMP_SPACER_CID || 902);
 const channelAdminGroupId = Number(process.env.TS_CHANNEL_ADMIN_GROUP_ID || 49);
 const adminGroupIds = new Set(String(process.env.TS_ADMIN_GROUP_IDS || "114,232,234,326,1266").split(",").map(Number).filter(Number.isFinite));
@@ -625,6 +629,8 @@ async function giveChannelAdmin(ts, creator, cids) {
 function serializeRoom(room) {
   return room ? {
     ...room,
+    expiresAt: room.autoExpire ? Number(room.lastActivityAt) + roomInactivityMs : null,
+    inactivityDays: room.autoExpire ? roomInactivityDays : null,
     creator: { databaseId: room.creatorDatabaseId, nickname: room.creatorNickname }
   } : null;
 }
@@ -880,6 +886,8 @@ async function sweepInactiveRooms() {
       const now = Date.now();
       const channels = parseItems(await ts.command("verificar atividade das salas", "channellist -secondsempty"));
       const byId = new Map(channels.map((channel) => [Number(channel.cid), channel]));
+      const clients = await listHumanClients(ts);
+      const clientsByDatabaseId = new Map(clients.map((client) => [Number(client.client_database_id), client]));
 
       for (const room of managedRooms) {
         if (!byId.has(Number(room.teamspeak.parentCid))) {
@@ -888,11 +896,37 @@ async function sweepInactiveRooms() {
         }
         const lastActivityAt = observedRoomActivityAt(room, byId, now);
         if (lastActivityAt === null) continue;
-        if (lastActivityAt > Number(room.lastActivityAt || 0)) store.touchRoomActivity(room.id, lastActivityAt);
-        if (!isRoomExpired(lastActivityAt, now, roomInactivityMs)) continue;
+        const currentRoom = lastActivityAt > Number(room.lastActivityAt || 0)
+          ? store.touchRoomActivity(room.id, lastActivityAt)
+          : room;
+        if (!isRoomExpired(currentRoom.lastActivityAt, now, roomInactivityMs)) {
+          const warning = expiryWarning(currentRoom.lastActivityAt, now, roomInactivityMs, currentRoom.warningMask);
+          const creator = clientsByDatabaseId.get(Number(currentRoom.creatorDatabaseId));
+          if (warning && creator) {
+            try {
+              await ts.command(
+                "avisar expiração da sala",
+                `sendtextmessage targetmode=1 target=${Number(creator.clid)} msg=${tsEscape(`LegendZ: a sala "${currentRoom.title}" será eliminada dentro de cerca de ${warning.days} ${warning.days === 1 ? "dia" : "dias"} se continuar sem atividade. Entra numa subsala para renovar o prazo de ${roomInactivityDays} dias.`)}`
+              );
+              store.markRoomWarningSent(currentRoom.id, warning.cumulativeMask);
+              store.audit({
+                databaseId: currentRoom.creatorDatabaseId,
+                nickname: currentRoom.creatorNickname,
+                ip: "system",
+                action: "room.expiry_warning",
+                target: currentRoom.id,
+                success: true,
+                details: { daysRemaining: warning.days }
+              });
+            } catch (error) {
+              console.error(`Falha ao avisar sobre a sala ${currentRoom.id}:`, error);
+            }
+          }
+          continue;
+        }
 
         try {
-          await deleteStoredRoom(ts, room);
+          await deleteStoredRoom(ts, currentRoom);
           store.audit({
             databaseId: room.creatorDatabaseId,
             nickname: room.creatorNickname,
@@ -918,6 +952,83 @@ async function sweepInactiveRooms() {
     });
   } finally {
     roomActivitySweepRunning = false;
+  }
+}
+
+let healthCheckRunning = false;
+async function notifyFounders(ts, clients) {
+  const founders = clients.filter((client) => isFounderClient({
+    serverGroups: String(client.client_servergroups || "").split(",").map(Number).filter(Boolean)
+  }));
+  if (!founders.length) return;
+  for (const alert of store.getPendingAdminAlerts()) {
+    let delivered = false;
+    for (const founder of founders) {
+      try {
+        await ts.command(
+          "notificar fundador",
+          `sendtextmessage targetmode=1 target=${Number(founder.clid)} msg=${tsEscape(`LegendZ Admin: ${alert.message}`)}`
+        );
+        delivered = true;
+      } catch (error) {
+        console.error("Falha ao notificar um Fundador:", error);
+      }
+    }
+    if (delivered) store.markAdminAlertNotified(alert.id);
+  }
+}
+
+async function collectOperationalHealth() {
+  if (!store || healthCheckRunning) return;
+  healthCheckRunning = true;
+  const startedAt = Date.now();
+  try {
+    await withTeamSpeak(async (ts) => {
+      const info = parseItems(await ts.command("monitorizar servidor", "serverinfo"))[0] || {};
+      const channels = parseItems(await ts.command("monitorizar canais", "channellist"));
+      const clients = await listHumanClients(ts, true);
+      const metrics = publicServerMetrics(info);
+      store.recordStatusSample({
+        online: true,
+        slotsUsed: metrics.slotsUsed,
+        slotsTotal: metrics.slotsTotal,
+        queryLatencyMs: Date.now() - startedAt
+      });
+      store.resolveIncident("query.unavailable");
+      store.resolveAdminAlert("query.unavailable", "A ligação ServerQuery recuperou e está operacional.");
+
+      const channelIds = new Set(channels.map((channel) => Number(channel.cid)));
+      const unsynchronized = store.getRooms().filter((room) => room.active).filter((room) => (
+        [room.teamspeak.topLineCid, room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)]
+          .some((cid) => !channelIds.has(Number(cid)))
+      ));
+      if (unsynchronized.length) {
+        store.openAdminAlert(
+          "rooms.unsynchronized", "rooms", "warning",
+          `${unsynchronized.length} ${unsynchronized.length === 1 ? "sala está dessincronizada" : "salas estão dessincronizadas"} com o TeamSpeak.`
+        );
+      } else {
+        store.resolveAdminAlert("rooms.unsynchronized", "A sincronização das salas com o TeamSpeak foi restabelecida.");
+      }
+
+      const authFailures = store.countAuthFailuresSince(Date.now() - 15 * 60_000);
+      if (authFailures >= authFailureAlertThreshold) {
+        store.openAdminAlert(
+          "auth.failures", "security", "warning",
+          `Foram detetadas ${authFailures} falhas de autenticação nos últimos 15 minutos.`
+        );
+      } else {
+        store.resolveAdminAlert("auth.failures", "O volume de falhas de autenticação voltou ao normal.");
+      }
+      await notifyFounders(ts, clients);
+    });
+  } catch (error) {
+    store.recordStatusSample({ online: false, slotsUsed: 0, slotsTotal: 0, queryLatencyMs: Date.now() - startedAt });
+    store.openIncident("query.unavailable", "query", "Ligação ServerQuery indisponível.");
+    store.openAdminAlert("query.unavailable", "query", "critical", "A ligação ServerQuery está indisponível; as operações do painel podem falhar.");
+    console.error("Falha na monitorização operacional:", error);
+  } finally {
+    healthCheckRunning = false;
   }
 }
 
@@ -1089,7 +1200,8 @@ async function getAdminOverview(request) {
       ip: maskIp(item.ip),
       details: cleanAuditDetails(item.details)
     })),
-    busiestBuckets: snapshot.security.busiestBuckets.map((item) => ({ ...sanitizeRateBucket(item.bucket), count: item.count }))
+    busiestBuckets: snapshot.security.busiestBuckets.map((item) => ({ ...sanitizeRateBucket(item.bucket), count: item.count })),
+    alerts: snapshot.alerts
   };
 }
 
@@ -1117,7 +1229,7 @@ async function handleApi(request, response, pathname) {
       } catch {
         teamSpeakOnline = false;
       }
-      sendJson(response, 200, { ok: true, teamSpeakOnline, metrics, fetchedAt: Date.now() });
+      sendJson(response, 200, { ok: true, teamSpeakOnline, metrics, history: store.getStatusHistory(), fetchedAt: Date.now() });
       return;
     }
 
@@ -1316,11 +1428,17 @@ const initialRoomActivityTimer = setTimeout(() => sweepInactiveRooms().catch((er
 initialRoomActivityTimer.unref();
 const roomActivityTimer = setInterval(() => sweepInactiveRooms().catch((error) => console.error("Falha ao verificar salas inativas:", error)), roomActivityCheckMs);
 roomActivityTimer.unref();
+const initialHealthTimer = setTimeout(() => collectOperationalHealth().catch((error) => console.error("Falha ao iniciar monitorização:", error)), 10_000);
+initialHealthTimer.unref();
+const healthTimer = setInterval(() => collectOperationalHealth().catch((error) => console.error("Falha na monitorização:", error)), healthCheckMs);
+healthTimer.unref();
 
 function shutdown() {
   clearInterval(cleanupTimer);
   clearTimeout(initialRoomActivityTimer);
   clearInterval(roomActivityTimer);
+  clearTimeout(initialHealthTimer);
+  clearInterval(healthTimer);
   server.close(() => {
     teamSpeak.close();
     if (store) store.close();

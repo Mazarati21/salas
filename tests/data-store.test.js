@@ -75,11 +75,39 @@ test("only tracks inactivity for newly opted-in rooms", () => withStore((store) 
   assert.equal(created.autoExpire, true);
   assert.equal(created.lastActivityAt, created.createdAt);
 
-  const activityAt = created.lastActivityAt + 60_000;
+  const activityAt = created.lastActivityAt + 600_000;
   const touched = store.touchRoomActivity(created.id, activityAt);
   assert.equal(touched.lastActivityAt, activityAt);
   store.touchRoomActivity(created.id, activityAt - 30_000);
   assert.equal(store.getActiveRoomById(created.id).lastActivityAt, activityAt);
+}));
+
+test("tracks expiry warnings and rearms them after meaningful activity", () => withStore((store) => {
+  const room = store.insertRoom(sampleRoom({ autoExpire: true }));
+  assert.equal(store.markRoomWarningSent(room.id, 3).warningMask, 3);
+  assert.equal(store.touchRoomActivity(room.id, room.lastActivityAt + 60_000).warningMask, 3);
+  const active = store.touchRoomActivity(room.id, room.lastActivityAt + 600_000);
+  assert.equal(active.warningMask, 0);
+}));
+
+test("stores operational history, incidents and admin alerts", () => withStore((store) => {
+  const now = 50 * 86_400_000;
+  store.recordStatusSample({ online: true, slotsUsed: 12, slotsTotal: 50, queryLatencyMs: 20 }, now);
+  store.recordStatusSample({ online: false }, now + 300_000);
+  store.openIncident("query", "query", "Ligação indisponível", now);
+  store.resolveIncident("query", now + 300_000);
+  const history = store.getStatusHistory(now + 300_000);
+  assert.equal(history.availability30d, 50);
+  assert.equal(history.peakSlots30d, 12);
+  assert.equal(history.incidents[0].resolvedAt, now + 300_000);
+
+  store.openAdminAlert("query", "query", "critical", "Query indisponível", now);
+  assert.equal(store.getPendingAdminAlerts().length, 1);
+  store.markAdminAlertNotified(store.getPendingAdminAlerts()[0].id, now);
+  assert.equal(store.getPendingAdminAlerts().length, 0);
+  store.resolveAdminAlert("query", "Query recuperada", now + 300_000);
+  assert.equal(store.getAdminAlerts()[0].active, false);
+  assert.equal(store.getPendingAdminAlerts().length, 1);
 }));
 
 test("migrates existing rooms without enabling automatic expiry", async () => {

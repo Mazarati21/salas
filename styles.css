@@ -129,6 +129,12 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .message.is-error { color: #8b1e28; background: #fff2f3; border-color: #f3c3c7; }
 .tree-body { padding: 16px 18px 18px; }
 .room-card { margin-bottom: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.room-expiry { display: grid; gap: 7px; padding: 11px 14px 12px; background: var(--surface-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.room-expiry > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.room-expiry span, .room-expiry small { color: var(--muted); font-size: 9px; }.room-expiry strong { font-size: 10px; }
+.room-expiry-track { height: 3px; overflow: hidden; background: var(--line); }.room-expiry-track i { display: block; height: 100%; background: var(--green); transition: width .4s ease; }
+.room-expiry.is-warning .room-expiry-track i { background: #e0a01a; }.room-expiry.is-warning strong { color: #a86c00; }
+.room-expiry.is-danger .room-expiry-track i { background: var(--red); }.room-expiry.is-danger strong { color: var(--red); }
 .thick-line { height: 7px; overflow: hidden; color: transparent; background: #252c38; border-bottom: 2px solid #0d1118; }
 .room-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 14px; color: var(--ink); background: var(--surface); border-bottom: 1px solid var(--line); cursor: pointer; text-align: left; }
 .room-main:hover { background: var(--panel-hover); }
@@ -192,6 +198,15 @@ select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb
 .metric-dot.is-good { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
 .metric-dot.is-alert { background: #e0a01a; box-shadow: 0 0 0 3px rgba(224, 160, 26, .15); }
 .admin-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 14px; align-items: start; }
+.alerts-section { overflow: hidden; }
+.alerts-list { display: grid; }
+.admin-alert { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 72px; padding: 13px 17px; border-bottom: 1px solid var(--line); }
+.admin-alert:last-child { border-bottom: 0; }.admin-alert.is-resolved { opacity: .7; }
+.admin-alert-mark { display: grid; width: 28px; height: 28px; place-items: center; color: #fff; background: var(--green); font-size: 11px; font-weight: 900; }
+.admin-alert.is-active .admin-alert-mark { background: #e0a01a; }.admin-alert.is-critical.is-active .admin-alert-mark { background: var(--red); }
+.admin-alert > div { min-width: 0; }.admin-alert p { margin: 4px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }.admin-alert small { color: var(--muted); font-size: 8px; }
+.admin-alert-state { color: var(--muted); font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.alerts-empty { display: grid; justify-items: center; gap: 5px; padding: 25px; color: var(--muted); text-align: center; }.alerts-empty strong { color: var(--ink); font-size: 11px; }.alerts-empty span { font-size: 9px; }
 .admin-section { min-width: 0; box-shadow: 0 8px 22px rgba(17, 24, 39, .06); }
 .admin-section-head { display: flex; min-height: 69px; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 17px; border-bottom: 1px solid var(--line); }
 .admin-section-head h3 { margin: 0; font-size: 16px; }
@@ -300,6 +315,7 @@ html[data-theme="dark"] .table-action { color: #d3dae5; background: #202734; bor
 html[data-theme="dark"] .table-action.is-danger { color: #ffb3b9; background: #2b1519; border-color: #6f3037; }
 html[data-theme="dark"] .status-chip.is-success { color: #8ce0bd; background: #10271f; border-color: #285d49; }
 html[data-theme="dark"] .status-chip.is-danger { color: #ffabb2; background: #2b1519; border-color: #6f3037; }
+html[data-theme="dark"] .room-expiry.is-warning strong { color: #f0c675; }
 html[data-theme="dark"] .audit-error-detail { color: #ffb2b9; background: #2b1519; border-left-color: #f13d49; }
 html[data-theme="dark"] .audit-error-detail code { color: #ffc5ca; background: #411d23; }
 html[data-theme="dark"] .temporary-block { color: #eef2f7; border-top-color: #d7dde7; }
@@ -342,6 +358,7 @@ html[data-theme="dark"] .footer a { color: #e3e8ef; }
   .health-list > div:nth-child(odd), .health-list > div:nth-child(even) { padding-right: 0; padding-left: 0; border-left: 0; }
   .health-list > div:nth-last-child(2) { border-bottom: 1px solid var(--line); }
   .admin-table { min-width: 620px; }
+  .admin-alert { grid-template-columns: 28px minmax(0, 1fr); }.admin-alert-state { grid-column: 2; }
   .rooms-section .room-status-list > div { align-items: flex-start; padding: 12px 0; }
   .room-admin-controls { align-items: flex-end; flex-direction: column; }
   .audit-feed { max-height: none; }

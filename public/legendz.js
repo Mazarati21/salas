@@ -30,6 +30,48 @@
     setText("[data-server-state]", online ? "Operacional" : "Indisponível");
     all("[data-server-light]").forEach(function (node) { node.classList.toggle("is-offline", !online); });
   }
+  function renderStatusHistory(history) {
+    if (!history) return;
+    setText("[data-availability]", history.availability30d == null ? "A recolher" : Number(history.availability30d).toFixed(2) + "%");
+    setText("[data-peak]", String(Number(history.peakSlots30d) || 0));
+    setText("[data-sample-count]", String(Number(history.sampleCount) || 0));
+    var chart = document.querySelector("[data-status-chart]");
+    if (chart) {
+      chart.replaceChildren();
+      (history.hourly || []).forEach(function (hour, index) {
+        var item = document.createElement("div");
+        var bar = document.createElement("i");
+        var label = document.createElement("span");
+        var value = hour.onlinePercent;
+        item.className = "status-hour" + (value === null ? " is-empty" : value < 100 ? " is-partial" : "");
+        item.title = value === null ? "Sem dados" : value + "% operacional · pico " + (hour.peakSlots || 0) + " utilizadores";
+        bar.style.height = (value === null ? 8 : Math.max(8, Number(value))) + "%";
+        label.textContent = index % 4 === 0 ? new Intl.DateTimeFormat("pt-PT", { hour: "2-digit", minute: "2-digit" }).format(new Date(hour.at)) : "";
+        item.append(bar, label);
+        chart.appendChild(item);
+      });
+    }
+    var incidents = document.querySelector("[data-incidents]");
+    if (incidents) {
+      incidents.replaceChildren();
+      if (!(history.incidents || []).length) {
+        var empty = document.createElement("p");
+        empty.className = "incident-empty";
+        empty.textContent = "Nenhum incidente registado nos últimos 30 dias.";
+        incidents.appendChild(empty);
+      } else {
+        history.incidents.forEach(function (incident) {
+          var row = document.createElement("article"), marker = document.createElement("span"), body = document.createElement("div"), title = document.createElement("strong"), detail = document.createElement("small"), state = document.createElement("b");
+          row.className = "incident-row " + (incident.resolvedAt ? "is-resolved" : "is-open");
+          marker.textContent = incident.resolvedAt ? "✓" : "!";
+          title.textContent = incident.summary;
+          detail.textContent = new Intl.DateTimeFormat("pt-PT", { dateStyle: "medium", timeStyle: "short" }).format(new Date(incident.startedAt));
+          state.textContent = incident.resolvedAt ? "Resolvido" : "Em análise";
+          body.append(title, detail); row.append(marker, body, state); incidents.appendChild(row);
+        });
+      }
+    }
+  }
   function updateMetrics() {
     return requestJson("/salas/api/status", 8000).then(function (payload) {
       var metrics = payload && payload.teamSpeakOnline && payload.metrics;
@@ -45,6 +87,7 @@
         var percent = metrics.slotsTotal ? Math.min(100, Math.max(0, metrics.slotsUsed / metrics.slotsTotal * 100)) : 0;
         node.style.width = percent + "%";
       });
+      renderStatusHistory(payload.history);
     }).catch(function () { setServerState(false); setText("[data-updated]", "Sem resposta"); });
   }
   function setupTheme() {

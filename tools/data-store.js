@@ -100,6 +100,7 @@ class DataStore {
         bottom_line_cid INTEGER NOT NULL,
         auto_expire INTEGER NOT NULL DEFAULT 0,
         last_activity_at INTEGER,
+        warning_mask INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -161,6 +162,43 @@ class DataStore {
         success INTEGER NOT NULL,
         details TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS status_samples (
+        bucket_at INTEGER PRIMARY KEY,
+        online INTEGER NOT NULL,
+        slots_used INTEGER NOT NULL DEFAULT 0,
+        slots_total INTEGER NOT NULL DEFAULT 0,
+        query_latency_ms INTEGER,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS service_incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        incident_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS incidents_one_open
+      ON service_incidents(incident_key) WHERE resolved_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS admin_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        message TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        resolved_at INTEGER,
+        notified_at INTEGER
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS alerts_one_active
+      ON admin_alerts(alert_key) WHERE active = 1;
     `);
   }
 
@@ -168,6 +206,7 @@ class DataStore {
     const columns = new Set(this.db.prepare("PRAGMA table_info(rooms)").all().map((column) => column.name));
     if (!columns.has("auto_expire")) this.db.exec("ALTER TABLE rooms ADD COLUMN auto_expire INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("last_activity_at")) this.db.exec("ALTER TABLE rooms ADD COLUMN last_activity_at INTEGER");
+    if (!columns.has("warning_mask")) this.db.exec("ALTER TABLE rooms ADD COLUMN warning_mask INTEGER NOT NULL DEFAULT 0");
   }
 
   migrateLegacyRooms(filePath) {
@@ -227,6 +266,7 @@ class DataStore {
       title: row.title,
       autoExpire: Boolean(row.auto_expire),
       lastActivityAt: Number(row.last_activity_at || row.created_at || 0),
+      warningMask: Number(row.warning_mask || 0),
       createdAt: Number(row.created_at || 0),
       updatedAt: Number(row.updated_at || 0),
       teamspeak: {
@@ -326,11 +366,147 @@ class DataStore {
   touchRoomActivity(id, activityAt = Date.now()) {
     const timestamp = Number(activityAt);
     this.db.prepare(`
-      UPDATE rooms SET last_activity_at = ?
+      UPDATE rooms SET last_activity_at = ?, warning_mask = 0
       WHERE id = ? AND active = 1 AND auto_expire = 1
-        AND (last_activity_at IS NULL OR last_activity_at < ?)
-    `).run(timestamp, String(id), timestamp);
+        AND (last_activity_at IS NULL OR last_activity_at <= ?)
+    `).run(timestamp, String(id), timestamp - 300_000);
     return this.getActiveRoomById(id);
+  }
+
+  markRoomWarningSent(id, warningMask) {
+    this.db.prepare(`
+      UPDATE rooms SET warning_mask = warning_mask | ?
+      WHERE id = ? AND active = 1 AND auto_expire = 1
+    `).run(Number(warningMask), String(id));
+    return this.getActiveRoomById(id);
+  }
+
+  recordStatusSample(sample, now = Date.now(), bucketMs = 300_000) {
+    const bucketAt = Math.floor(Number(now) / bucketMs) * bucketMs;
+    this.db.prepare(`
+      INSERT INTO status_samples (
+        bucket_at, online, slots_used, slots_total, query_latency_ms, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(bucket_at) DO UPDATE SET
+        online = excluded.online,
+        slots_used = excluded.slots_used,
+        slots_total = excluded.slots_total,
+        query_latency_ms = excluded.query_latency_ms,
+        created_at = excluded.created_at
+    `).run(
+      bucketAt, sample.online ? 1 : 0, Number(sample.slotsUsed || 0), Number(sample.slotsTotal || 0),
+      sample.queryLatencyMs == null ? null : Number(sample.queryLatencyMs), Number(now)
+    );
+  }
+
+  openIncident(incidentKey, type, summary, now = Date.now()) {
+    const existing = this.db.prepare(`
+      SELECT * FROM service_incidents WHERE incident_key = ? AND resolved_at IS NULL
+    `).get(String(incidentKey));
+    if (existing) return { ...existing, created: false };
+    this.db.prepare(`
+      INSERT INTO service_incidents (incident_key, type, summary, started_at)
+      VALUES (?, ?, ?, ?)
+    `).run(String(incidentKey), String(type), String(summary).slice(0, 300), Number(now));
+    const created = this.db.prepare("SELECT * FROM service_incidents WHERE id = last_insert_rowid()").get();
+    return { ...created, created: true };
+  }
+
+  resolveIncident(incidentKey, now = Date.now()) {
+    this.db.prepare(`
+      UPDATE service_incidents SET resolved_at = ?
+      WHERE incident_key = ? AND resolved_at IS NULL
+    `).run(Number(now), String(incidentKey));
+  }
+
+  getStatusHistory(now = Date.now()) {
+    const since = Number(now) - (30 * 86_400_000);
+    const samples = this.db.prepare(`
+      SELECT bucket_at, online, slots_used, slots_total, query_latency_ms
+      FROM status_samples WHERE bucket_at >= ? ORDER BY bucket_at
+    `).all(since);
+    const onlineSamples = samples.filter((sample) => Boolean(sample.online)).length;
+    const startHour = Math.floor((Number(now) - (23 * 3_600_000)) / 3_600_000) * 3_600_000;
+    const hourly = Array.from({ length: 24 }, (_, index) => {
+      const at = startHour + (index * 3_600_000);
+      const rows = samples.filter((sample) => Number(sample.bucket_at) >= at && Number(sample.bucket_at) < at + 3_600_000);
+      return {
+        at,
+        onlinePercent: rows.length ? Math.round((rows.filter((row) => Boolean(row.online)).length / rows.length) * 100) : null,
+        peakSlots: rows.length ? Math.max(...rows.map((row) => Number(row.slots_used || 0))) : null
+      };
+    });
+    const incidents = this.db.prepare(`
+      SELECT id, type, summary, started_at, resolved_at
+      FROM service_incidents
+      WHERE started_at >= ? OR resolved_at IS NULL
+      ORDER BY started_at DESC LIMIT 10
+    `).all(since).map((incident) => ({
+      id: Number(incident.id),
+      type: incident.type,
+      summary: incident.summary,
+      startedAt: Number(incident.started_at),
+      resolvedAt: incident.resolved_at == null ? null : Number(incident.resolved_at)
+    }));
+    return {
+      availability30d: samples.length ? Number(((onlineSamples / samples.length) * 100).toFixed(2)) : null,
+      peakSlots30d: samples.length ? Math.max(...samples.map((sample) => Number(sample.slots_used || 0))) : 0,
+      sampleCount: samples.length,
+      hourly,
+      incidents
+    };
+  }
+
+  openAdminAlert(alertKey, type, severity, message, now = Date.now()) {
+    const existing = this.db.prepare(`
+      SELECT * FROM admin_alerts WHERE alert_key = ? AND active = 1
+    `).get(String(alertKey));
+    if (existing) {
+      this.db.prepare("UPDATE admin_alerts SET message = ?, updated_at = ? WHERE id = ?")
+        .run(String(message).slice(0, 500), Number(now), Number(existing.id));
+      return { ...existing, message: String(message).slice(0, 500), updated_at: Number(now), created: false };
+    }
+    this.db.prepare(`
+      INSERT INTO admin_alerts (alert_key, type, severity, message, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(String(alertKey), String(type), String(severity), String(message).slice(0, 500), Number(now), Number(now));
+    const created = this.db.prepare("SELECT * FROM admin_alerts WHERE id = last_insert_rowid()").get();
+    return { ...created, created: true };
+  }
+
+  resolveAdminAlert(alertKey, message, now = Date.now()) {
+    this.db.prepare(`
+      UPDATE admin_alerts SET active = 0, message = ?, updated_at = ?, resolved_at = ?, notified_at = NULL
+      WHERE alert_key = ? AND active = 1
+    `).run(String(message).slice(0, 500), Number(now), Number(now), String(alertKey));
+  }
+
+  getPendingAdminAlerts() {
+    return this.db.prepare(`
+      SELECT * FROM admin_alerts WHERE notified_at IS NULL ORDER BY active DESC, created_at
+    `).all();
+  }
+
+  markAdminAlertNotified(id, now = Date.now()) {
+    this.db.prepare("UPDATE admin_alerts SET notified_at = ? WHERE id = ?").run(Number(now), Number(id));
+  }
+
+  getAdminAlerts(limit = 20) {
+    return this.db.prepare(`
+      SELECT id, type, severity, message, active, created_at, updated_at, resolved_at
+      FROM admin_alerts ORDER BY active DESC, updated_at DESC LIMIT ?
+    `).all(Number(limit)).map((alert) => ({
+      id: Number(alert.id), type: alert.type, severity: alert.severity, message: alert.message,
+      active: Boolean(alert.active), createdAt: Number(alert.created_at), updatedAt: Number(alert.updated_at),
+      resolvedAt: alert.resolved_at == null ? null : Number(alert.resolved_at)
+    }));
+  }
+
+  countAuthFailuresSince(since) {
+    return Number(this.db.prepare(`
+      SELECT COUNT(*) AS count FROM audit_log
+      WHERE created_at >= ? AND success = 0 AND action LIKE 'auth.%'
+    `).get(Number(since)).count || 0);
   }
 
   markMissingRoomsInactive(existingParentCids) {
@@ -479,7 +655,8 @@ class DataStore {
         failures24h: Number(failures.total_failures || 0),
         authFailures24h: Number(failures.auth_failures || 0),
         busiestBuckets
-      }
+      },
+      alerts: this.getAdminAlerts()
     };
   }
 
@@ -491,6 +668,9 @@ class DataStore {
       this.db.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked = 1 AND last_seen_at < ?)").run(now, now - 86_400_000);
       this.db.prepare("DELETE FROM rate_limits WHERE window_start < ?").run(now - 86_400_000);
       this.db.prepare("DELETE FROM audit_log WHERE created_at < ?").run(now - 180 * 86_400_000);
+      this.db.prepare("DELETE FROM status_samples WHERE bucket_at < ?").run(now - 90 * 86_400_000);
+      this.db.prepare("DELETE FROM service_incidents WHERE resolved_at IS NOT NULL AND resolved_at < ?").run(now - 180 * 86_400_000);
+      this.db.prepare("DELETE FROM admin_alerts WHERE active = 0 AND resolved_at < ?").run(now - 180 * 86_400_000);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");

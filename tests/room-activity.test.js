@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { isRoomExpired, observedRoomActivityAt } = require("../tools/room-activity");
+const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("../tools/room-activity");
 
 const day = 86_400_000;
 const now = 50 * day;
@@ -28,4 +28,12 @@ test("treats an occupied channel as activity now", () => {
 test("expires a room only at the configured inactivity boundary", () => {
   assert.equal(isRoomExpired(20 * day, now - 1, 30 * day), false);
   assert.equal(isRoomExpired(20 * day, now, 30 * day), true);
+});
+
+test("selects the most urgent unsent inactivity warning", () => {
+  assert.equal(expiryWarning(20 * day, 43 * day, 30 * day, 0).days, 7);
+  assert.equal(expiryWarning(20 * day, 48 * day, 30 * day, 0).days, 3);
+  assert.equal(expiryWarning(20 * day, 49.5 * day, 30 * day, 0).days, 1);
+  assert.equal(expiryWarning(20 * day, 49.5 * day, 30 * day, 7), null);
+  assert.equal(expiryWarning(20 * day, 50 * day, 30 * day, 0), null);
 });
