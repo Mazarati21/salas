@@ -59,6 +59,20 @@ Adiciona no próprio cPanel as variáveis de `.env.example`. Em particular:
 - `HEALTH_CHECK_MINUTES=5` para o histórico de estado, incidentes e verificação de sincronização
 - `AUTH_FAILURE_ALERT_THRESHOLD=5` para alertar após esse número de falhas de autenticação em 15 minutos
 
+O deploy instala um cron idempotente que consulta o estado a cada cinco minutos. Cada pedido grava uma amostra no SQLite, por isso a página distingue disponibilidade observada de cobertura efetiva dos dados.
+
+## Backups
+
+A aplicação cria um backup diário em `data/backups/` e conserva os últimos 14 dias. O estado do backup mais recente aparece na Administração.
+
+Para restaurar, para primeiro a aplicação Node no cPanel e executa no diretório da aplicação:
+
+```bash
+npm run restore-backup -- legendz-AAAA-MM-DD.sqlite
+```
+
+O comando valida a integridade do backup e preserva uma cópia da base anterior. Reinicia depois a aplicação no cPanel.
+
 Não cries `ALLOW_LOCAL_QUERY_OWNER_FALLBACK` em produção. O cPanel fornece `PORT` automaticamente; utiliza esse valor em vez de fixar uma porta manualmente.
 
 Depois do clone ou atualização executa `npm ci`, confirma que `data/` pode ser escrita pelo utilizador da aplicação e reinicia a aplicação no cPanel. O JavaScript do browser já segue compilado no Git; `npm run build` só é necessário quando `app.jsx` for alterado.

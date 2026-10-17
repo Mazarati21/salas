@@ -96,6 +96,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .profile-group-fallback { display: grid; width: 17px; height: 17px; place-items: center; flex: 0 0 auto; color: #fff; background: #697386; border-radius: 3px; font-size: 8px; }
 .profile-more { display: inline-grid; min-width: 29px; height: 29px; place-items: center; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); border-radius: 5px; font-size: 10px; font-weight: 850; }
 .profile-empty { color: var(--muted); font-size: 11px; }
+.profile-notifications { display: grid; border-top: 1px solid var(--line); }
+.profile-notifications-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 8px; }
+.profile-notifications-head strong { font-size: 11px; }.profile-notifications-head > span { display: grid; min-width: 22px; height: 22px; place-items: center; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); font-size: 9px; font-weight: 900; }
+.profile-notification { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.notification-mark { display: grid; width: 25px; height: 25px; place-items: center; color: #fff; background: #697386; font-size: 9px; font-weight: 900; }
+.profile-notification.is-warning .notification-mark { background: #d8910d; }.profile-notification.is-danger .notification-mark { background: var(--red); }
+.profile-notification > div { min-width: 0; }.profile-notification strong { display: block; font-size: 10px; }.profile-notification p { margin: 3px 0; color: var(--muted); font-size: 9px; line-height: 1.4; }.profile-notification time { color: var(--muted); font-size: 8px; }
+.profile-notifications-empty { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; color: var(--muted); border-top: 1px solid var(--line); font-size: 9px; }.profile-notifications-empty .notification-mark { background: var(--green); }
 select, input { width: 100%; min-height: 38px; padding: 0 11px; color: var(--ink); background: var(--field); border: 1px solid var(--line-strong); border-radius: 6px; outline: none; }
 select { text-align: left; }
 input::placeholder { color: #98a1b1; }

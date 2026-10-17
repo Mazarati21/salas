@@ -91,6 +91,11 @@ function ProfilePanel({ auth, room, sections, selections }) {
         {hiddenCount > 0 && <span className="profile-more">+{hiddenCount}</span>}
         {selectedGroups.length === 0 && <span className="profile-empty">Ainda não tens grupos selecionados.</span>}
       </div>
+      <div className="profile-notifications" aria-label="Notificações da conta">
+        <div className="profile-notifications-head"><strong>Notificações</strong><span>{auth.notifications?.length || 0}</span></div>
+        {(auth.notifications || []).map((notification) => <article className={`profile-notification is-${notification.tone}`} key={notification.id}><span className="notification-mark" aria-hidden="true">{notification.tone === "neutral" ? "i" : "!"}</span><div><strong>{notification.title}</strong><p>{notification.message}</p><time dateTime={new Date(notification.date).toISOString()}>{formatDate(notification.date)}</time></div></article>)}
+        {!auth.notifications?.length && <div className="profile-notifications-empty"><span className="notification-mark" aria-hidden="true">✓</span><span>Não tens avisos pendentes.</span></div>}
+      </div>
     </div>
   </section>;
 }
@@ -333,6 +338,7 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
           <div><dt>Uptime TeamSpeak</dt><dd>{formatDuration(teamSpeak.uptimeSeconds)}</dd></div>
           <div><dt>Processo web</dt><dd>{formatDuration(data.health?.processUptimeSeconds)}</dd></div>
           <div><dt>Base de dados</dt><dd>{formatBytes(data.health?.databaseBytes)}</dd></div>
+          <div><dt>Último backup</dt><dd className={data.health?.backup?.latestAt ? "value-good" : "value-alert"}>{data.health?.backup?.latestAt ? formatDate(data.health.backup.latestAt) : "Pendente"}</dd></div>
           <div><dt>Tráfego</dt><dd>↓ {formatBytes(teamSpeak.bytesDownloaded)} · ↑ {formatBytes(teamSpeak.bytesUploaded)}</dd></div>
           <div><dt>Salas dessincronizadas</dt><dd className={data.counts?.unsynchronizedRooms ? "value-alert" : "value-good"}>{data.counts?.unsynchronizedRooms ?? 0}</dd></div>
         </dl>

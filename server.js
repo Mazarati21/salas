@@ -635,6 +635,30 @@ function serializeRoom(room) {
   } : null;
 }
 
+function roomNotifications(room, now = Date.now()) {
+  if (!room) return [];
+  const notifications = [];
+  if (room.autoExpire) {
+    const expiresAt = Number(room.lastActivityAt) + roomInactivityMs;
+    const remainingDays = Math.max(0, Math.ceil((expiresAt - Number(now)) / 86_400_000));
+    notifications.push({
+      id: "room-expiry",
+      tone: remainingDays <= 3 ? "danger" : remainingDays <= 7 ? "warning" : "neutral",
+      title: remainingDays === 1 ? "1 dia restante" : `${remainingDays} dias restantes`,
+      message: "Entra numa subsala para renovar automaticamente o prazo.",
+      date: expiresAt
+    });
+    notifications.push({
+      id: "room-activity",
+      tone: "neutral",
+      title: "Última atividade da sala",
+      message: room.title,
+      date: Number(room.lastActivityAt)
+    });
+  }
+  return notifications;
+}
+
 async function createRoom(payload, session) {
   const title = sanitizeTitle(payload.title);
   if (!title) throw new HttpError(400, "Escreve um nome válido para a sala.");
@@ -1078,7 +1102,8 @@ async function authenticationStatus(request) {
     isAdmin,
     csrfToken: session.csrfToken,
     user: publicUser(session),
-    activeRoom: serializeRoom(activeRoom)
+    activeRoom: serializeRoom(activeRoom),
+    notifications: roomNotifications(activeRoom)
   };
 }
 
@@ -1183,6 +1208,7 @@ async function getAdminOverview(request) {
       queryLatencyMs: teamSpeakState.latencyMs,
       processUptimeSeconds: Math.floor(process.uptime()),
       databaseBytes,
+      backup: store.getBackupStatus(),
       teamSpeak: teamSpeakState.metrics
     },
     counts: {
@@ -1224,10 +1250,22 @@ async function handleApi(request, response, pathname) {
     if (pathname === "/api/status" && request.method === "GET") {
       let teamSpeakOnline = true;
       let metrics = null;
+      const startedAt = Date.now();
       try {
         metrics = await getPublicServerMetrics();
+        store.recordStatusSample({
+          online: true,
+          slotsUsed: metrics.slotsUsed,
+          slotsTotal: metrics.slotsTotal,
+          queryLatencyMs: Date.now() - startedAt
+        });
+        store.resolveIncident("query.unavailable");
+        store.resolveAdminAlert("query.unavailable", "A ligação ServerQuery recuperou e está operacional.");
       } catch {
         teamSpeakOnline = false;
+        store.recordStatusSample({ online: false, queryLatencyMs: Date.now() - startedAt });
+        store.openIncident("query.unavailable", "query", "Ligação ServerQuery indisponível.");
+        store.openAdminAlert("query.unavailable", "query", "critical", "A ligação ServerQuery está indisponível; as operações do painel podem falhar.");
       }
       sendJson(response, 200, { ok: true, teamSpeakOnline, metrics, history: store.getStatusHistory(), fetchedAt: Date.now() });
       return;
@@ -1412,6 +1450,11 @@ server.keepAliveTimeout = 5_000;
 server.maxHeadersCount = 60;
 async function start() {
   store = await DataStore.open(dataDir);
+  try {
+    store.createBackup();
+  } catch (error) {
+    console.error("Falha ao criar backup inicial:", error);
+  }
   server.listen(port, "127.0.0.1", () => {
     console.log(`LegendZ server listening at http://127.0.0.1:${port}`);
   });
@@ -1432,6 +1475,10 @@ const initialHealthTimer = setTimeout(() => collectOperationalHealth().catch((er
 initialHealthTimer.unref();
 const healthTimer = setInterval(() => collectOperationalHealth().catch((error) => console.error("Falha na monitorização:", error)), healthCheckMs);
 healthTimer.unref();
+const backupTimer = setInterval(() => {
+  try { store.createBackup(); } catch (error) { console.error("Falha ao criar backup automático:", error); }
+}, 6 * 60 * 60 * 1000);
+backupTimer.unref();
 
 function shutdown() {
   clearInterval(cleanupTimer);
@@ -1439,6 +1486,7 @@ function shutdown() {
   clearInterval(roomActivityTimer);
   clearTimeout(initialHealthTimer);
   clearInterval(healthTimer);
+  clearInterval(backupTimer);
   server.close(() => {
     teamSpeak.close();
     if (store) store.close();

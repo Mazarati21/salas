@@ -79,6 +79,8 @@ class DataStore {
 
   constructor(dataDir, SQL) {
     fs.mkdirSync(dataDir, { recursive: true });
+    this.dataDir = dataDir;
+    this.backupsDir = path.join(dataDir, "backups");
     this.dbPath = path.join(dataDir, "legendz.sqlite");
     this.db = new PersistentDatabase(SQL, this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON");
@@ -426,6 +428,8 @@ class DataStore {
       FROM status_samples WHERE bucket_at >= ? ORDER BY bucket_at
     `).all(since);
     const onlineSamples = samples.filter((sample) => Boolean(sample.online)).length;
+    const periodStartedAt = samples.length ? Math.max(since, Number(samples[0].bucket_at)) : null;
+    const expectedSamples = periodStartedAt == null ? 0 : Math.max(1, Math.floor((Number(now) - periodStartedAt) / 300_000) + 1);
     const startHour = Math.floor((Number(now) - (23 * 3_600_000)) / 3_600_000) * 3_600_000;
     const hourly = Array.from({ length: 24 }, (_, index) => {
       const at = startHour + (index * 3_600_000);
@@ -450,6 +454,8 @@ class DataStore {
     }));
     return {
       availability30d: samples.length ? Number(((onlineSamples / samples.length) * 100).toFixed(2)) : null,
+      coverage30d: expectedSamples ? Number((Math.min(1, samples.length / expectedSamples) * 100).toFixed(2)) : null,
+      periodStartedAt,
       peakSlots30d: samples.length ? Math.max(...samples.map((sample) => Number(sample.slots_used || 0))) : 0,
       sampleCount: samples.length,
       hourly,
@@ -507,6 +513,40 @@ class DataStore {
       SELECT COUNT(*) AS count FROM audit_log
       WHERE created_at >= ? AND success = 0 AND action LIKE 'auth.%'
     `).get(Number(since)).count || 0);
+  }
+
+  createBackup(now = Date.now(), retentionDays = 14) {
+    fs.mkdirSync(this.backupsDir, { recursive: true });
+    this.db.persist();
+    const date = new Date(Number(now)).toISOString().slice(0, 10);
+    const destination = path.join(this.backupsDir, `legendz-${date}.sqlite`);
+    const temporary = `${destination}.${process.pid}.tmp`;
+    fs.copyFileSync(this.dbPath, temporary);
+    fs.renameSync(temporary, destination);
+
+    const cutoff = Number(now) - (Math.max(1, Number(retentionDays) || 14) * 86_400_000);
+    for (const file of fs.readdirSync(this.backupsDir)) {
+      if (!/^legendz-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)) continue;
+      const filePath = path.join(this.backupsDir, file);
+      if (fs.statSync(filePath).mtimeMs < cutoff) fs.rmSync(filePath);
+    }
+    return this.getBackupStatus();
+  }
+
+  getBackupStatus() {
+    if (!fs.existsSync(this.backupsDir)) return { count: 0, latestAt: null, latestBytes: 0 };
+    const backups = fs.readdirSync(this.backupsDir)
+      .filter((file) => /^legendz-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file))
+      .map((file) => {
+        const stats = fs.statSync(path.join(this.backupsDir, file));
+        return { file, modifiedAt: stats.mtimeMs, bytes: stats.size };
+      })
+      .sort((left, right) => right.modifiedAt - left.modifiedAt);
+    return {
+      count: backups.length,
+      latestAt: backups[0]?.modifiedAt || null,
+      latestBytes: backups[0]?.bytes || 0
+    };
   }
 
   markMissingRoomsInactive(existingParentCids) {

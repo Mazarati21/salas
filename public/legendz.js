@@ -33,6 +33,9 @@
   function renderStatusHistory(history) {
     if (!history) return;
     setText("[data-availability]", history.availability30d == null ? "A recolher" : Number(history.availability30d).toFixed(2) + "%");
+    setText("[data-coverage]", history.coverage30d == null ? "A recolher" : Number(history.coverage30d).toFixed(2) + "%");
+    setText("[data-coverage-note]", history.coverage30d == null ? "Ainda não existem dados suficientes." : "Baseado em " + history.sampleCount + " verificações desde " + new Intl.DateTimeFormat("pt-PT", { dateStyle: "medium" }).format(new Date(history.periodStartedAt)) + ".");
+    all("[data-coverage-meter]").forEach(function (node) { node.style.width = Math.max(0, Math.min(100, Number(history.coverage30d) || 0)) + "%"; });
     setText("[data-peak]", String(Number(history.peakSlots30d) || 0));
     setText("[data-sample-count]", String(Number(history.sampleCount) || 0));
     var chart = document.querySelector("[data-status-chart]");

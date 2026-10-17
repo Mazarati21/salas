@@ -98,6 +98,7 @@ test("stores operational history, incidents and admin alerts", () => withStore((
   store.resolveIncident("query", now + 300_000);
   const history = store.getStatusHistory(now + 300_000);
   assert.equal(history.availability30d, 50);
+  assert.equal(history.coverage30d, 100);
   assert.equal(history.peakSlots30d, 12);
   assert.equal(history.incidents[0].resolvedAt, now + 300_000);
 
@@ -108,6 +109,17 @@ test("stores operational history, incidents and admin alerts", () => withStore((
   store.resolveAdminAlert("query", "Query recuperada", now + 300_000);
   assert.equal(store.getAdminAlerts()[0].active, false);
   assert.equal(store.getPendingAdminAlerts().length, 1);
+}));
+
+test("creates atomic daily database backups and reports their state", () => withStore((store) => {
+  store.insertRoom(sampleRoom());
+  const now = Date.UTC(2026, 9, 17, 12);
+  const first = store.createBackup(now);
+  assert.equal(first.count, 1);
+  assert.ok(first.latestBytes > 0);
+  store.createBackup(now + 3_600_000);
+  assert.equal(store.getBackupStatus().count, 1);
+  assert.equal(fs.existsSync(path.join(store.backupsDir, "legendz-2026-10-17.sqlite")), true);
 }));
 
 test("migrates existing rooms without enabling automatic expiry", async () => {
