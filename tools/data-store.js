@@ -201,6 +201,14 @@ class DataStore {
 
       CREATE UNIQUE INDEX IF NOT EXISTS alerts_one_active
       ON admin_alerts(alert_key) WHERE active = 1;
+
+      CREATE TABLE IF NOT EXISTS admin_alert_reads (
+        alert_id INTEGER NOT NULL,
+        database_id INTEGER NOT NULL,
+        read_at INTEGER NOT NULL,
+        PRIMARY KEY (alert_id, database_id),
+        FOREIGN KEY (alert_id) REFERENCES admin_alerts(id) ON DELETE CASCADE
+      );
     `);
   }
 
@@ -481,10 +489,12 @@ class DataStore {
   }
 
   resolveAdminAlert(alertKey, message, now = Date.now()) {
+    const active = this.db.prepare("SELECT id FROM admin_alerts WHERE alert_key = ? AND active = 1").get(String(alertKey));
     this.db.prepare(`
       UPDATE admin_alerts SET active = 0, message = ?, updated_at = ?, resolved_at = ?, notified_at = NULL
       WHERE alert_key = ? AND active = 1
     `).run(String(message).slice(0, 500), Number(now), Number(now), String(alertKey));
+    if (active) this.db.prepare("DELETE FROM admin_alert_reads WHERE alert_id = ?").run(Number(active.id));
   }
 
   getPendingAdminAlerts() {
@@ -497,15 +507,54 @@ class DataStore {
     this.db.prepare("UPDATE admin_alerts SET notified_at = ? WHERE id = ?").run(Number(now), Number(id));
   }
 
-  getAdminAlerts(limit = 20) {
+  getAdminAlerts(limit = 20, databaseId = null) {
+    const staffDatabaseId = Number(databaseId);
     return this.db.prepare(`
-      SELECT id, type, severity, message, active, created_at, updated_at, resolved_at
-      FROM admin_alerts ORDER BY active DESC, updated_at DESC LIMIT ?
-    `).all(Number(limit)).map((alert) => ({
+      SELECT a.id, a.type, a.severity, a.message, a.active, a.created_at, a.updated_at, a.resolved_at,
+        CASE WHEN r.read_at IS NULL THEN 0 ELSE 1 END AS is_read,
+        r.read_at
+      FROM admin_alerts a
+      LEFT JOIN admin_alert_reads r ON r.alert_id = a.id AND r.database_id = ?
+      ORDER BY a.active DESC, a.updated_at DESC LIMIT ?
+    `).all(Number.isFinite(staffDatabaseId) ? staffDatabaseId : -1, Number(limit)).map((alert) => ({
       id: Number(alert.id), type: alert.type, severity: alert.severity, message: alert.message,
       active: Boolean(alert.active), createdAt: Number(alert.created_at), updatedAt: Number(alert.updated_at),
-      resolvedAt: alert.resolved_at == null ? null : Number(alert.resolved_at)
+      resolvedAt: alert.resolved_at == null ? null : Number(alert.resolved_at), read: Boolean(alert.is_read),
+      readAt: alert.read_at == null ? null : Number(alert.read_at)
     }));
+  }
+
+  markAdminAlertRead(id, databaseId, now = Date.now()) {
+    const alertId = Number(id);
+    const staffDatabaseId = Number(databaseId);
+    if (!Number.isInteger(alertId) || alertId <= 0 || !Number.isInteger(staffDatabaseId) || staffDatabaseId <= 0) return false;
+    if (!this.db.prepare("SELECT id FROM admin_alerts WHERE id = ?").get(alertId)) return false;
+    this.db.prepare(`
+      INSERT INTO admin_alert_reads (alert_id, database_id, read_at) VALUES (?, ?, ?)
+      ON CONFLICT(alert_id, database_id) DO UPDATE SET read_at = excluded.read_at
+    `).run(alertId, staffDatabaseId, Number(now));
+    return true;
+  }
+
+  markAllAdminAlertsRead(databaseId, now = Date.now()) {
+    const staffDatabaseId = Number(databaseId);
+    if (!Number.isInteger(staffDatabaseId) || staffDatabaseId <= 0) return 0;
+    this.db.prepare(`
+      INSERT OR REPLACE INTO admin_alert_reads (alert_id, database_id, read_at)
+      SELECT id, ?, ? FROM admin_alerts
+    `).run(staffDatabaseId, Number(now));
+    return this.countUnreadAdminAlerts(staffDatabaseId);
+  }
+
+  countUnreadAdminAlerts(databaseId) {
+    const staffDatabaseId = Number(databaseId);
+    if (!Number.isInteger(staffDatabaseId) || staffDatabaseId <= 0) return 0;
+    return Number(this.db.prepare(`
+      SELECT COUNT(*) AS count FROM admin_alerts a
+      WHERE NOT EXISTS (
+        SELECT 1 FROM admin_alert_reads r WHERE r.alert_id = a.id AND r.database_id = ?
+      )
+    `).get(staffDatabaseId).count || 0);
   }
 
   countAuthFailuresSince(since) {
@@ -644,7 +693,7 @@ class DataStore {
     );
   }
 
-  getAdminSnapshot(now = Date.now()) {
+  getAdminSnapshot(now = Date.now(), databaseId = null) {
     const activeSessions = this.db.prepare(`
       SELECT database_id, nickname, ip, created_at, expires_at, last_seen_at
       FROM sessions WHERE revoked = 0 AND expires_at > ?
@@ -696,7 +745,8 @@ class DataStore {
         authFailures24h: Number(failures.auth_failures || 0),
         busiestBuckets
       },
-      alerts: this.getAdminAlerts()
+      alerts: this.getAdminAlerts(20, databaseId),
+      unreadAlerts: this.countUnreadAdminAlerts(databaseId)
     };
   }
 

@@ -302,15 +302,16 @@ function formatDuration(value) {
   return `${minutes} min`;
 }
 
-function AdminAlerts({ alerts = [] }) {
+function AdminAlerts({ alerts = [], onRead, busy }) {
   const active = alerts.filter((alert) => alert.active);
+  const unread = alerts.filter((alert) => !alert.read);
   return <section className="panel admin-section alerts-section">
-    <div className="admin-section-head"><div><p className="eyebrow">Monitorização automática</p><h3>Alertas operacionais</h3></div><span className={`status-chip ${active.length ? "is-danger" : "is-success"}`}>{active.length ? `${active.length} ${active.length === 1 ? "ativo" : "ativos"}` : "Sem alertas"}</span></div>
-    <div className="alerts-list">{alerts.map((alert) => <article className={`admin-alert is-${alert.severity} ${alert.active ? "is-active" : "is-resolved"}`} key={alert.id}><span className="admin-alert-mark" aria-hidden="true">{alert.active ? "!" : "✓"}</span><div><strong>{alert.type === "query" ? "ServerQuery" : alert.type === "security" ? "Segurança" : "Sincronização"}</strong><p>{alert.message}</p><small>{alert.active ? `Detetado ${formatDate(alert.createdAt)}` : `Resolvido ${formatDate(alert.resolvedAt)}`}</small></div><span className="admin-alert-state">{alert.active ? "Ação necessária" : "Resolvido"}</span></article>)}{!alerts.length && <div className="alerts-empty"><strong>Todos os sistemas normais</strong><span>A monitorização não detetou situações que exijam atenção.</span></div>}</div>
+    <div className="admin-section-head alerts-head"><div><p className="eyebrow">Caixa da staff</p><h3>Notificações operacionais</h3></div><div className="alerts-head-actions"><span className={`status-chip ${active.length ? "is-danger" : "is-success"}`}>{active.length ? `${active.length} ${active.length === 1 ? "ativo" : "ativos"}` : "Sem alertas"}</span>{unread.length > 0 && <button className="mark-all-button" type="button" disabled={Boolean(busy)} onClick={() => onRead(null)}>{busy === "alerts:all" ? "A guardar..." : `Marcar ${unread.length} como lida${unread.length === 1 ? "" : "s"}`}</button>}</div></div>
+    <div className="alerts-list">{alerts.map((alert) => <article className={`admin-alert is-${alert.severity} ${alert.active ? "is-active" : "is-resolved"} ${alert.read ? "is-read" : "is-unread"}`} key={alert.id}><span className="admin-alert-mark" aria-hidden="true">{alert.active ? "!" : "✓"}</span><div><span className="alert-title-line"><strong>{alert.type === "query" ? "ServerQuery" : alert.type === "security" ? "Segurança" : "Sincronização"}</strong>{!alert.read && <b>Nova</b>}</span><p>{alert.message}</p><small>{alert.active ? `Detetado ${formatDate(alert.createdAt)}` : `Resolvido ${formatDate(alert.resolvedAt)}`}</small></div><div className="admin-alert-controls"><span className="admin-alert-state">{alert.active ? "Ação necessária" : "Resolvido"}</span>{!alert.read && <button className="alert-read-button" type="button" disabled={Boolean(busy)} onClick={() => onRead(alert.id)}>{busy === `alert:${alert.id}` ? "A guardar..." : "Marcar como lida"}</button>}</div></article>)}{!alerts.length && <div className="alerts-empty"><strong>Todos os sistemas normais</strong><span>A monitorização não detetou situações que exijam atenção.</span></div>}</div>
   </section>;
 }
 
-function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessage, onRevokeSession, onDeleteRoom }) {
+function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessage, onReadAlert, onRevokeSession, onDeleteRoom }) {
   if (!data && busy) return <section className="panel loading-panel admin-loading"><span className="loader" /><strong>A recolher dados de segurança...</strong></section>;
   if (!data) return <section className="panel admin-unavailable"><p className="eyebrow">Administração</p><h2>Não foi possível abrir a supervisão</h2><p>{error || "Volta a tentar dentro de alguns instantes."}</p><button className="primary-button" type="button" onClick={() => onRefresh(true)}>Tentar novamente</button></section>;
 
@@ -329,7 +330,7 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
       <div><span className={`metric-dot ${data.counts?.unsynchronizedRooms ? "is-alert" : "is-good"}`} /><strong>{data.counts?.activeRooms ?? 0}</strong><small>Salas permanentes</small></div>
       <div><span className={`metric-dot ${data.counts?.failures24h ? "is-alert" : "is-good"}`} /><strong>{data.counts?.failures24h ?? 0}</strong><small>Falhas em 24 h</small></div>
     </section>
-    <AdminAlerts alerts={data.alerts || []} />
+    <AdminAlerts alerts={data.alerts || []} onRead={onReadAlert} busy={actionBusy} />
     <div className="admin-grid">
       <section className="panel admin-section health-section">
         <div className="admin-section-head"><div><p className="eyebrow">Estado atual</p><h3>Serviços</h3></div><span className="status-chip is-success">Operacional</span></div>
@@ -428,6 +429,16 @@ function App() {
     finally { setAdminActionBusy(""); }
   }
 
+  async function markAdminAlertRead(alertId) {
+    const busyKey = alertId == null ? "alerts:all" : `alert:${alertId}`;
+    setAdminActionBusy(busyKey); setAdminActionMessage({ text: "", type: "success" });
+    try {
+      await api("/api/admin/alerts/read", { method: "POST", body: JSON.stringify(alertId == null ? { all: true } : { id: alertId }) });
+      await refreshAdmin(false);
+    } catch (error) { setAdminActionMessage({ text: error.message, type: "error" }); }
+    finally { setAdminActionBusy(""); }
+  }
+
   async function logout() {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch {}
     csrfToken = ""; setSections([]); setSelections({}); setSavedSelections({}); setRoomOpen(false); setView("panel"); setAdminData(null); setAdminError(""); setAdminActionMessage({ text: "", type: "success" }); await refreshAuth();
@@ -463,9 +474,9 @@ function App() {
     <section className="intro-bar" aria-label="Resumo do painel"><div><strong>1–4</strong><span>subsalas por espaço</span></div><div><strong>1</strong><span>sala por utilizador</span></div><div><strong>Auto</strong><span>Channel Admin</span></div><p>Gere os teus grupos e a tua sala com confirmação segura através do TeamSpeak.</p></section>
     {!auth.loading && !auth.authenticated && <AuthPanel auth={auth} onAuthenticated={refreshAll} />}
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
-    {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração</button></nav>}
+    {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração{Boolean(adminData?.counts?.unreadAlerts) && <span className="nav-alert-count">{adminData.counts.unreadAlerts}</span>}</button></nav>}
     {auth.authenticated && view === "panel" && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} /></div></div>}
-    {auth.authenticated && auth.isAdmin && view === "admin" && <AdminDashboard data={adminData} busy={adminBusy} error={adminError} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} />}
+    {auth.authenticated && auth.isAdmin && view === "admin" && <AdminDashboard data={adminData} busy={adminBusy} error={adminError} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} />}
     <Footer />
   </main>;
 }

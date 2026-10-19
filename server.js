@@ -980,22 +980,23 @@ async function sweepInactiveRooms() {
 }
 
 let healthCheckRunning = false;
-async function notifyFounders(ts, clients) {
-  const founders = clients.filter((client) => isFounderClient({
-    serverGroups: String(client.client_servergroups || "").split(",").map(Number).filter(Boolean)
-  }));
-  if (!founders.length) return;
+async function notifyStaff(ts, clients) {
+  const staff = clients.filter((client) => {
+    const subject = { serverGroups: String(client.client_servergroups || "").split(",").map(Number).filter(Boolean) };
+    return isAdminClient(subject) || isFounderClient(subject);
+  });
+  if (!staff.length) return;
   for (const alert of store.getPendingAdminAlerts()) {
     let delivered = false;
-    for (const founder of founders) {
+    for (const member of staff) {
       try {
         await ts.command(
-          "notificar fundador",
-          `sendtextmessage targetmode=1 target=${Number(founder.clid)} msg=${tsEscape(`LegendZ Admin: ${alert.message}`)}`
+          "notificar staff",
+          `sendtextmessage targetmode=1 target=${Number(member.clid)} msg=${tsEscape(`LegendZ Staff: ${alert.message}`)}`
         );
         delivered = true;
       } catch (error) {
-        console.error("Falha ao notificar um Fundador:", error);
+        console.error("Falha ao notificar um membro da staff:", error);
       }
     }
     if (delivered) store.markAdminAlertNotified(alert.id);
@@ -1044,7 +1045,7 @@ async function collectOperationalHealth() {
       } else {
         store.resolveAdminAlert("auth.failures", "O volume de falhas de autenticação voltou ao normal.");
       }
-      await notifyFounders(ts, clients);
+      await notifyStaff(ts, clients);
     });
   } catch (error) {
     store.recordStatusSample({ online: false, slotsUsed: 0, slotsTotal: 0, queryLatencyMs: Date.now() - startedAt });
@@ -1182,7 +1183,7 @@ async function getAdminOverview(request) {
       canManage: access.canManage
     };
   });
-  const snapshot = store.getAdminSnapshot();
+  const snapshot = store.getAdminSnapshot(Date.now(), session.database_id);
   const rooms = snapshot.rooms.map((room) => ({
     id: room.id,
     title: room.title,
@@ -1216,7 +1217,8 @@ async function getAdminOverview(request) {
       activeSessions: snapshot.activeSessions.length,
       failures24h: snapshot.security.failures24h,
       authFailures24h: snapshot.security.authFailures24h,
-      unsynchronizedRooms: rooms.filter((room) => !room.synchronized).length
+      unsynchronizedRooms: rooms.filter((room) => !room.synchronized).length,
+      unreadAlerts: snapshot.unreadAlerts
     },
     rooms,
     sessions: snapshot.activeSessions.map((item) => ({ ...item, ip: maskIp(item.ip) })),
@@ -1239,7 +1241,7 @@ async function handleApi(request, response, pathname) {
       ["/api/status", ["GET"]], ["/api/bans", ["GET"]], ["/api/auth/status", ["GET"]],
       ["/api/auth/challenge", ["POST"]], ["/api/auth/verify", ["POST"]], ["/api/auth/logout", ["POST"]],
       ["/api/groups", ["GET", "POST"]], ["/api/rooms", ["POST", "PATCH", "DELETE"]],
-      ["/api/admin/overview", ["GET"]], ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
+      ["/api/admin/overview", ["GET"]], ["/api/admin/alerts/read", ["POST"]], ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
     ]);
     const routeMethods = allowedMethods.get(pathname);
     if (routeMethods && !routeMethods.includes(request.method)) {
@@ -1283,6 +1285,19 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/admin/overview" && request.method === "GET") {
       sendJson(response, 200, { ok: true, ...(await getAdminOverview(request)) });
+      return;
+    }
+
+    if (pathname === "/api/admin/alerts/read" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      await withTeamSpeak((ts) => requireAdmin(ts, session));
+      if (body.all === true) {
+        store.markAllAdminAlertsRead(session.database_id);
+      } else if (!store.markAdminAlertRead(body.id, session.database_id)) {
+        throw new HttpError(404, "Notificação não encontrada.");
+      }
+      sendJson(response, 200, { ok: true, unread: store.countUnreadAdminAlerts(session.database_id) });
       return;
     }
 

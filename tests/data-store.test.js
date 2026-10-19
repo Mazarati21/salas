@@ -122,6 +122,25 @@ test("creates atomic daily database backups and reports their state", () => with
   assert.equal(fs.existsSync(path.join(store.backupsDir, "legendz-2026-10-17.sqlite")), true);
 }));
 
+test("tracks administrative alert reads independently for each staff member", () => withStore((store) => {
+  const now = Date.UTC(2026, 9, 19, 12);
+  store.openAdminAlert("query", "query", "critical", "Query indisponível", now);
+  store.openAdminAlert("rooms", "rooms", "warning", "Sala dessincronizada", now + 1);
+  const first = store.getAdminAlerts().find((alert) => alert.type === "query");
+
+  assert.equal(store.countUnreadAdminAlerts(10), 2);
+  assert.equal(store.markAdminAlertRead(first.id, 10, now + 2), true);
+  assert.equal(store.countUnreadAdminAlerts(10), 1);
+  assert.equal(store.countUnreadAdminAlerts(20), 2);
+  assert.equal(store.getAdminAlerts(20, 10).find((alert) => alert.id === Number(first.id)).read, true);
+
+  store.markAllAdminAlertsRead(10, now + 3);
+  assert.equal(store.countUnreadAdminAlerts(10), 0);
+  store.resolveAdminAlert("query", "Query recuperada", now + 4);
+  assert.equal(store.countUnreadAdminAlerts(10), 1);
+  assert.equal(store.getAdminAlerts(20, 10).find((alert) => alert.id === Number(first.id)).read, false);
+}));
+
 test("migrates existing rooms without enabling automatic expiry", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "legendz-legacy-store-"));
   try {
