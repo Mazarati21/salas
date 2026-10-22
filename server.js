@@ -659,6 +659,11 @@ function roomNotifications(room, now = Date.now()) {
   return notifications;
 }
 
+function assertPanelWritable() {
+  const maintenance = store.getMaintenance();
+  if (maintenance.enabled) throw new HttpError(503, maintenance.message);
+}
+
 async function createRoom(payload, session) {
   const title = sanitizeTitle(payload.title);
   if (!title) throw new HttpError(400, "Escreve um nome válido para a sala.");
@@ -1070,6 +1075,7 @@ async function auditAction(request, session, action, target, work) {
 
 async function authenticationStatus(request) {
   const session = resolveSession(request);
+  const maintenance = store.getMaintenance();
   if (!session) {
     let candidates = [];
     let teamSpeakOnline = true;
@@ -1078,7 +1084,7 @@ async function authenticationStatus(request) {
     } catch {
       teamSpeakOnline = false;
     }
-    return { authenticated: false, teamSpeakOnline, candidates: candidates.map(publicUser) };
+    return { authenticated: false, teamSpeakOnline, maintenance, candidates: candidates.map(publicUser) };
   }
 
   let connected = false;
@@ -1101,6 +1107,7 @@ async function authenticationStatus(request) {
     teamSpeakOnline,
     connected,
     isAdmin,
+    maintenance,
     csrfToken: session.csrfToken,
     user: publicUser(session),
     activeRoom: serializeRoom(activeRoom),
@@ -1195,7 +1202,9 @@ async function getAdminOverview(request) {
     expiresAt: room.autoExpire ? room.lastActivityAt + roomInactivityMs : null,
     channelCount: room.channels.length + 1,
     synchronized: [room.teamspeak.topLineCid, room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)]
-      .every((cid) => teamSpeakState.channelIds.has(Number(cid)))
+      .every((cid) => teamSpeakState.channelIds.has(Number(cid))),
+    remainingDays: room.autoExpire ? Math.max(0, Math.ceil((room.lastActivityAt + roomInactivityMs - Date.now()) / 86_400_000)) : null,
+    inactivityDays: Math.max(0, Math.floor((Date.now() - room.lastActivityAt) / 86_400_000))
   }));
   let databaseBytes = 0;
   try { databaseBytes = fs.statSync(store.dbPath).size; } catch {}
@@ -1203,6 +1212,7 @@ async function getAdminOverview(request) {
   return {
     administrator: publicUser(session),
     permissions: { canManage: teamSpeakState.canManage },
+    maintenance: store.getMaintenance(),
     fetchedAt: Date.now(),
     health: {
       queryOnline: true,
@@ -1218,6 +1228,7 @@ async function getAdminOverview(request) {
       failures24h: snapshot.security.failures24h,
       authFailures24h: snapshot.security.authFailures24h,
       unsynchronizedRooms: rooms.filter((room) => !room.synchronized).length,
+      expiringRooms: rooms.filter((room) => room.autoExpire && room.remainingDays <= 7).length,
       unreadAlerts: snapshot.unreadAlerts
     },
     rooms,
@@ -1229,8 +1240,33 @@ async function getAdminOverview(request) {
       details: cleanAuditDetails(item.details)
     })),
     busiestBuckets: snapshot.security.busiestBuckets.map((item) => ({ ...sanitizeRateBucket(item.bucket), count: item.count })),
-    alerts: snapshot.alerts
+    alerts: snapshot.alerts,
+    history: store.getStatusHistory(),
+    backups: teamSpeakState.canManage ? store.listBackups() : []
   };
+}
+
+async function setMaintenanceAsFounder(payload, session) {
+  await withTeamSpeak((ts) => requireFounder(ts, session));
+  const maintenance = store.setMaintenance(payload.enabled === true, payload.message);
+  if (maintenance.enabled) {
+    store.openAdminAlert("panel.maintenance", "maintenance", "warning", `Modo de manutenção ativo: ${maintenance.message}`);
+  } else {
+    store.resolveAdminAlert("panel.maintenance", "O modo de manutenção foi desativado.");
+  }
+  return maintenance;
+}
+
+async function createManualBackupAsFounder(session) {
+  await withTeamSpeak((ts) => requireFounder(ts, session));
+  store.createBackup(Date.now(), 14, true);
+  return { backups: store.listBackups() };
+}
+
+async function requireFounderForBackup(request) {
+  const session = requireSession(request);
+  await withTeamSpeak((ts) => requireFounder(ts, session));
+  return session;
 }
 
 async function handleApi(request, response, pathname) {
@@ -1241,7 +1277,10 @@ async function handleApi(request, response, pathname) {
       ["/api/status", ["GET"]], ["/api/bans", ["GET"]], ["/api/auth/status", ["GET"]],
       ["/api/auth/challenge", ["POST"]], ["/api/auth/verify", ["POST"]], ["/api/auth/logout", ["POST"]],
       ["/api/groups", ["GET", "POST"]], ["/api/rooms", ["POST", "PATCH", "DELETE"]],
-      ["/api/admin/overview", ["GET"]], ["/api/admin/alerts/read", ["POST"]], ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
+      ["/api/admin/overview", ["GET"]], ["/api/admin/alerts/read", ["POST"]], ["/api/admin/alerts/note", ["POST"]],
+      ["/api/admin/incidents/note", ["POST"]], ["/api/admin/maintenance", ["POST"]],
+      ["/api/admin/backups", ["POST"]], ["/api/admin/backups/download", ["GET"]],
+      ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
     ]);
     const routeMethods = allowedMethods.get(pathname);
     if (routeMethods && !routeMethods.includes(request.method)) {
@@ -1269,7 +1308,7 @@ async function handleApi(request, response, pathname) {
         store.openIncident("query.unavailable", "query", "Ligação ServerQuery indisponível.");
         store.openAdminAlert("query.unavailable", "query", "critical", "A ligação ServerQuery está indisponível; as operações do painel podem falhar.");
       }
-      sendJson(response, 200, { ok: true, teamSpeakOnline, metrics, history: store.getStatusHistory(), fetchedAt: Date.now() });
+      sendJson(response, 200, { ok: true, teamSpeakOnline, maintenance: store.getMaintenance(), metrics, history: store.getStatusHistory(), fetchedAt: Date.now() });
       return;
     }
 
@@ -1298,6 +1337,57 @@ async function handleApi(request, response, pathname) {
         throw new HttpError(404, "Notificação não encontrada.");
       }
       sendJson(response, 200, { ok: true, unread: store.countUnreadAdminAlerts(session.database_id) });
+      return;
+    }
+
+    if (pathname === "/api/admin/alerts/note" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      await withTeamSpeak((ts) => requireAdmin(ts, session));
+      if (!store.setAdminAlertNote(body.id, body.note, session.nickname)) throw new HttpError(404, "Notificação não encontrada.");
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === "/api/admin/incidents/note" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      await withTeamSpeak((ts) => requireFounder(ts, session));
+      if (!store.setIncidentNote(body.id, body.note, session.nickname)) throw new HttpError(404, "Incidente não encontrado.");
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === "/api/admin/maintenance" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const body = await readBody(request);
+      const maintenance = await auditAction(request, session, "admin.maintenance.update", String(body.enabled === true), () => setMaintenanceAsFounder(body, session));
+      sendJson(response, 200, { ok: true, maintenance });
+      return;
+    }
+
+    if (pathname === "/api/admin/backups" && request.method === "POST") {
+      const session = requireSession(request, true);
+      enforceRateLimit(`backup:${session.database_id}`, 3, 60 * 60 * 1000);
+      const payload = await auditAction(request, session, "admin.backup.create", null, () => createManualBackupAsFounder(session));
+      sendJson(response, 201, { ok: true, ...payload });
+      return;
+    }
+
+    if (pathname === "/api/admin/backups/download" && request.method === "GET") {
+      await requireFounderForBackup(request);
+      const requested = new URL(request.url, "http://localhost").searchParams.get("file");
+      const backupPath = store.getBackupPath(requested);
+      if (!backupPath) throw new HttpError(404, "Backup não encontrado.");
+      const stats = fs.statSync(backupPath);
+      response.writeHead(200, {
+        ...securityHeaders(),
+        "Content-Type": "application/octet-stream",
+        "Content-Length": stats.size,
+        "Content-Disposition": `attachment; filename="${path.basename(backupPath)}"`,
+        "Cache-Control": "no-store"
+      });
+      fs.createReadStream(backupPath).pipe(response);
       return;
     }
 
@@ -1366,6 +1456,7 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/groups" && request.method === "POST") {
       const session = requireSession(request, true);
+      assertPanelWritable();
       const body = await readBody(request);
       const payload = await auditAction(request, session, "groups.update", null, () => updateUserGroups(body, session));
       sendJson(response, 200, { ok: true, ...payload });
@@ -1374,6 +1465,7 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/rooms" && request.method === "POST") {
       const session = requireSession(request, true);
+      assertPanelWritable();
       const body = await readBody(request);
       const room = await auditAction(request, session, "room.create", null, () => createRoom(body, session));
       sendJson(response, 201, { ok: true, room });
@@ -1382,6 +1474,7 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/rooms" && request.method === "PATCH") {
       const session = requireSession(request, true);
+      assertPanelWritable();
       const body = await readBody(request);
       const room = await auditAction(request, session, "room.update", body.id, () => updateRoom(body, session));
       sendJson(response, 200, { ok: true, room });
@@ -1390,6 +1483,7 @@ async function handleApi(request, response, pathname) {
 
     if (pathname === "/api/rooms" && request.method === "DELETE") {
       const session = requireSession(request, true);
+      assertPanelWritable();
       const body = await readBody(request);
       await auditAction(request, session, "room.delete", body.id, () => deleteRoom(body, session));
       sendJson(response, 200, { ok: true });

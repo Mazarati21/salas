@@ -5,9 +5,10 @@ const initSqlJs = require("sql.js");
 async function main() {
   const root = path.resolve(__dirname, "..");
   const backupsDir = path.join(root, "data", "backups");
-  const requested = path.basename(String(process.argv[2] || ""));
-  if (!/^legendz-\d{4}-\d{2}-\d{2}\.sqlite$/.test(requested)) {
-    throw new Error("Indica um backup válido: npm run restore-backup -- legendz-AAAA-MM-DD.sqlite");
+  const input = String(process.argv[2] || "");
+  const requested = path.basename(input);
+  if (input !== requested || !/^legendz-\d{4}-\d{2}-\d{2}(?:-\d{6})?\.sqlite$/.test(requested)) {
+    throw new Error("Indica um backup válido: npm run restore-backup -- legendz-AAAA-MM-DD[-HHMMSS].sqlite");
   }
   const source = path.join(backupsDir, requested);
   if (!fs.existsSync(source)) throw new Error(`Backup não encontrado: ${requested}`);

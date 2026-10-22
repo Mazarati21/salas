@@ -64,13 +64,15 @@
         incidents.appendChild(empty);
       } else {
         history.incidents.forEach(function (incident) {
-          var row = document.createElement("article"), marker = document.createElement("span"), body = document.createElement("div"), title = document.createElement("strong"), detail = document.createElement("small"), state = document.createElement("b");
+          var row = document.createElement("article"), marker = document.createElement("span"), body = document.createElement("div"), title = document.createElement("strong"), detail = document.createElement("small"), state = document.createElement("b"), note;
           row.className = "incident-row " + (incident.resolvedAt ? "is-resolved" : "is-open");
           marker.textContent = incident.resolvedAt ? "✓" : "!";
           title.textContent = incident.summary;
           detail.textContent = new Intl.DateTimeFormat("pt-PT", { dateStyle: "medium", timeStyle: "short" }).format(new Date(incident.startedAt));
           state.textContent = incident.resolvedAt ? "Resolvido" : "Em análise";
-          body.append(title, detail); row.append(marker, body, state); incidents.appendChild(row);
+          body.append(title, detail);
+          if (incident.note) { note = document.createElement("p"); note.className = "incident-note"; note.textContent = incident.note; body.appendChild(note); }
+          row.append(marker, body, state); incidents.appendChild(row);
         });
       }
     }
@@ -79,6 +81,8 @@
     return requestJson("/salas/api/status", 8000).then(function (payload) {
       var metrics = payload && payload.teamSpeakOnline && payload.metrics;
       setServerState(Boolean(metrics));
+      all("[data-maintenance]").forEach(function (node) { node.hidden = !payload.maintenance || !payload.maintenance.enabled; });
+      if (payload.maintenance && payload.maintenance.enabled) setText("[data-maintenance-message]", payload.maintenance.message || "O painel de salas está temporariamente indisponível.");
       if (!metrics) throw new Error("Sem métricas");
       setText("[data-slots]", metrics.slotsUsed + "/" + metrics.slotsTotal);
       var days = Math.floor(Number(metrics.uptimeSeconds) / 86400);

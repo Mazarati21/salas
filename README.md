@@ -15,6 +15,10 @@ Website LegendZ e painel web para autenticar utilizadores através do TeamSpeak,
 - Grupos permitidos definidos no servidor; `Membro` e grupos internos não são expostos.
 - SQLite persistente para salas, sessões, desafios, limites e auditoria.
 - Área administrativa de leitura para Server Admins, com saúde do serviço, sessões anonimizadas, sincronização de salas e auditoria recente.
+- Centro operacional com cronologia pública de incidentes, notas internas da staff, filtros de salas e gráfico das últimas 24 horas.
+- Modo de manutenção controlado pelo Fundador, comunicado também na página pública de Estado.
+- Backups automáticos e manuais com verificação de integridade e descarga reservada ao Fundador.
+- Modelos de sala, notificações discretas, confirmações próprias e navegação móvel fixa.
 - Tema claro e escuro, layout responsivo e ícones reais do TeamSpeak.
 
 ## Desenvolvimento
@@ -63,12 +67,12 @@ O deploy instala um cron idempotente que consulta o estado a cada cinco minutos.
 
 ## Backups
 
-A aplicação cria um backup diário em `data/backups/` e conserva os últimos 14 dias. O estado do backup mais recente aparece na Administração.
+A aplicação cria um backup diário em `data/backups/` e conserva os últimos 14 dias. O Fundador pode criar, verificar e descarregar backups manuais na Administração. Os ficheiros nunca são expostos como conteúdo estático e cada descarga volta a validar sessão e grupo no TeamSpeak.
 
 Para restaurar, para primeiro a aplicação Node no cPanel e executa no diretório da aplicação:
 
 ```bash
-npm run restore-backup -- legendz-AAAA-MM-DD.sqlite
+npm run restore-backup -- legendz-AAAA-MM-DD[-HHMMSS].sqlite
 ```
 
 O comando valida a integridade do backup e preserva uma cópia da base anterior. Reinicia depois a aplicação no cPanel.
@@ -104,7 +108,7 @@ O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a
 
 A vista **Administração** só aparece quando o utilizador autenticado está ligado ao TeamSpeak e pertence a um dos grupos definidos em `TS_ADMIN_GROUP_IDS`. A API volta a confirmar o grupo no TeamSpeak em cada acesso, pelo que esconder o botão no browser não é a barreira de segurança.
 
-Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura e recebem alertas operacionais privados quando estão ligados ao TeamSpeak. A caixa de notificações mantém o estado lido/não lido separado por conta. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem terminar sessões web de terceiros e remover salas permanentes; cada ação volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
+Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura, podem registar notas operacionais internas e recebem alertas privados quando estão ligados ao TeamSpeak. A caixa de notificações mantém o estado lido/não lido separado por conta. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem publicar notas de incidente, terminar sessões web de terceiros, remover salas permanentes, controlar a manutenção e gerir backups; cada ação destrutiva volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
 
 ## Publicação num VPS
 

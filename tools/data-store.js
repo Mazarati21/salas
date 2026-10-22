@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const initSqlJs = require("sql.js");
 
+const backupNamePattern = /^legendz-\d{4}-\d{2}-\d{2}(?:-\d{6})?\.sqlite$/;
+
 class PersistentDatabase {
   constructor(SQL, filePath) {
     this.filePath = filePath;
@@ -81,11 +83,13 @@ class DataStore {
     fs.mkdirSync(dataDir, { recursive: true });
     this.dataDir = dataDir;
     this.backupsDir = path.join(dataDir, "backups");
+    this.SQL = SQL;
     this.dbPath = path.join(dataDir, "legendz.sqlite");
     this.db = new PersistentDatabase(SQL, this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON");
     this.createSchema();
     this.migrateRoomActivitySchema();
+    this.migrateOperationalSchema();
     this.migrateLegacyRooms(path.join(dataDir, "rooms.json"));
   }
 
@@ -180,7 +184,10 @@ class DataStore {
         type TEXT NOT NULL,
         summary TEXT NOT NULL,
         started_at INTEGER NOT NULL,
-        resolved_at INTEGER
+        resolved_at INTEGER,
+        note TEXT,
+        note_by TEXT,
+        note_at INTEGER
       );
 
       CREATE UNIQUE INDEX IF NOT EXISTS incidents_one_open
@@ -196,7 +203,10 @@ class DataStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         resolved_at INTEGER,
-        notified_at INTEGER
+        notified_at INTEGER,
+        staff_note TEXT,
+        staff_note_by TEXT,
+        staff_note_at INTEGER
       );
 
       CREATE UNIQUE INDEX IF NOT EXISTS alerts_one_active
@@ -209,6 +219,12 @@ class DataStore {
         PRIMARY KEY (alert_id, database_id),
         FOREIGN KEY (alert_id) REFERENCES admin_alerts(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -217,6 +233,18 @@ class DataStore {
     if (!columns.has("auto_expire")) this.db.exec("ALTER TABLE rooms ADD COLUMN auto_expire INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("last_activity_at")) this.db.exec("ALTER TABLE rooms ADD COLUMN last_activity_at INTEGER");
     if (!columns.has("warning_mask")) this.db.exec("ALTER TABLE rooms ADD COLUMN warning_mask INTEGER NOT NULL DEFAULT 0");
+  }
+
+  migrateOperationalSchema() {
+    const incidentColumns = new Set(this.db.prepare("PRAGMA table_info(service_incidents)").all().map((column) => column.name));
+    if (!incidentColumns.has("note")) this.db.exec("ALTER TABLE service_incidents ADD COLUMN note TEXT");
+    if (!incidentColumns.has("note_by")) this.db.exec("ALTER TABLE service_incidents ADD COLUMN note_by TEXT");
+    if (!incidentColumns.has("note_at")) this.db.exec("ALTER TABLE service_incidents ADD COLUMN note_at INTEGER");
+
+    const alertColumns = new Set(this.db.prepare("PRAGMA table_info(admin_alerts)").all().map((column) => column.name));
+    if (!alertColumns.has("staff_note")) this.db.exec("ALTER TABLE admin_alerts ADD COLUMN staff_note TEXT");
+    if (!alertColumns.has("staff_note_by")) this.db.exec("ALTER TABLE admin_alerts ADD COLUMN staff_note_by TEXT");
+    if (!alertColumns.has("staff_note_at")) this.db.exec("ALTER TABLE admin_alerts ADD COLUMN staff_note_at INTEGER");
   }
 
   migrateLegacyRooms(filePath) {
@@ -449,7 +477,7 @@ class DataStore {
       };
     });
     const incidents = this.db.prepare(`
-      SELECT id, type, summary, started_at, resolved_at
+      SELECT id, type, summary, started_at, resolved_at, note, note_by, note_at
       FROM service_incidents
       WHERE started_at >= ? OR resolved_at IS NULL
       ORDER BY started_at DESC LIMIT 10
@@ -458,7 +486,10 @@ class DataStore {
       type: incident.type,
       summary: incident.summary,
       startedAt: Number(incident.started_at),
-      resolvedAt: incident.resolved_at == null ? null : Number(incident.resolved_at)
+      resolvedAt: incident.resolved_at == null ? null : Number(incident.resolved_at),
+      note: incident.note || null,
+      noteBy: incident.note_by || null,
+      noteAt: incident.note_at == null ? null : Number(incident.note_at)
     }));
     return {
       availability30d: samples.length ? Number(((onlineSamples / samples.length) * 100).toFixed(2)) : null,
@@ -488,6 +519,15 @@ class DataStore {
     return { ...created, created: true };
   }
 
+  setIncidentNote(id, note, nickname, now = Date.now()) {
+    const incidentId = Number(id);
+    if (!Number.isInteger(incidentId) || incidentId <= 0) return false;
+    if (!this.db.prepare("SELECT id FROM service_incidents WHERE id = ?").get(incidentId)) return false;
+    this.db.prepare("UPDATE service_incidents SET note = ?, note_by = ?, note_at = ? WHERE id = ?")
+      .run(String(note || "").trim().slice(0, 300) || null, String(nickname || "Staff").slice(0, 80), Number(now), incidentId);
+    return true;
+  }
+
   resolveAdminAlert(alertKey, message, now = Date.now()) {
     const active = this.db.prepare("SELECT id FROM admin_alerts WHERE alert_key = ? AND active = 1").get(String(alertKey));
     this.db.prepare(`
@@ -511,6 +551,7 @@ class DataStore {
     const staffDatabaseId = Number(databaseId);
     return this.db.prepare(`
       SELECT a.id, a.type, a.severity, a.message, a.active, a.created_at, a.updated_at, a.resolved_at,
+        a.staff_note, a.staff_note_by, a.staff_note_at,
         CASE WHEN r.read_at IS NULL THEN 0 ELSE 1 END AS is_read,
         r.read_at
       FROM admin_alerts a
@@ -520,8 +561,18 @@ class DataStore {
       id: Number(alert.id), type: alert.type, severity: alert.severity, message: alert.message,
       active: Boolean(alert.active), createdAt: Number(alert.created_at), updatedAt: Number(alert.updated_at),
       resolvedAt: alert.resolved_at == null ? null : Number(alert.resolved_at), read: Boolean(alert.is_read),
-      readAt: alert.read_at == null ? null : Number(alert.read_at)
+      readAt: alert.read_at == null ? null : Number(alert.read_at), staffNote: alert.staff_note || null,
+      staffNoteBy: alert.staff_note_by || null, staffNoteAt: alert.staff_note_at == null ? null : Number(alert.staff_note_at)
     }));
+  }
+
+  setAdminAlertNote(id, note, nickname, now = Date.now()) {
+    const alertId = Number(id);
+    if (!Number.isInteger(alertId) || alertId <= 0) return false;
+    if (!this.db.prepare("SELECT id FROM admin_alerts WHERE id = ?").get(alertId)) return false;
+    this.db.prepare("UPDATE admin_alerts SET staff_note = ?, staff_note_by = ?, staff_note_at = ? WHERE id = ?")
+      .run(String(note || "").trim().slice(0, 300) || null, String(nickname || "Staff").slice(0, 80), Number(now), alertId);
+    return true;
   }
 
   markAdminAlertRead(id, databaseId, now = Date.now()) {
@@ -564,28 +615,36 @@ class DataStore {
     `).get(Number(since)).count || 0);
   }
 
-  createBackup(now = Date.now(), retentionDays = 14) {
+  createBackup(now = Date.now(), retentionDays = 14, manual = false) {
     fs.mkdirSync(this.backupsDir, { recursive: true });
     this.db.persist();
-    const date = new Date(Number(now)).toISOString().slice(0, 10);
-    const destination = path.join(this.backupsDir, `legendz-${date}.sqlite`);
+    const iso = new Date(Number(now)).toISOString();
+    const date = iso.slice(0, 10);
+    const time = iso.slice(11, 19).replace(/:/g, "");
+    const destination = path.join(this.backupsDir, `legendz-${manual ? `${date}-${time}` : date}.sqlite`);
     const temporary = `${destination}.${process.pid}.tmp`;
     fs.copyFileSync(this.dbPath, temporary);
     fs.renameSync(temporary, destination);
 
     const cutoff = Number(now) - (Math.max(1, Number(retentionDays) || 14) * 86_400_000);
     for (const file of fs.readdirSync(this.backupsDir)) {
-      if (!/^legendz-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)) continue;
+      if (!backupNamePattern.test(file)) continue;
       const filePath = path.join(this.backupsDir, file);
       if (fs.statSync(filePath).mtimeMs < cutoff) fs.rmSync(filePath);
     }
+    const excessManual = fs.readdirSync(this.backupsDir)
+      .filter((file) => /-\d{6}\.sqlite$/.test(file))
+      .map((file) => ({ file, modifiedAt: fs.statSync(path.join(this.backupsDir, file)).mtimeMs }))
+      .sort((left, right) => right.modifiedAt - left.modifiedAt)
+      .slice(30);
+    for (const backup of excessManual) fs.rmSync(path.join(this.backupsDir, backup.file));
     return this.getBackupStatus();
   }
 
   getBackupStatus() {
     if (!fs.existsSync(this.backupsDir)) return { count: 0, latestAt: null, latestBytes: 0 };
     const backups = fs.readdirSync(this.backupsDir)
-      .filter((file) => /^legendz-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file))
+      .filter((file) => backupNamePattern.test(file))
       .map((file) => {
         const stats = fs.statSync(path.join(this.backupsDir, file));
         return { file, modifiedAt: stats.mtimeMs, bytes: stats.size };
@@ -596,6 +655,73 @@ class DataStore {
       latestAt: backups[0]?.modifiedAt || null,
       latestBytes: backups[0]?.bytes || 0
     };
+  }
+
+  listBackups(limit = 20) {
+    if (!fs.existsSync(this.backupsDir)) return [];
+    return fs.readdirSync(this.backupsDir)
+      .filter((file) => backupNamePattern.test(file))
+      .map((file) => {
+        const filePath = path.join(this.backupsDir, file);
+        const stats = fs.statSync(filePath);
+        return { file, createdAt: stats.mtimeMs, bytes: stats.size };
+      })
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, Math.max(1, Math.min(50, Number(limit) || 20)))
+      .map((backup) => {
+        const filePath = path.join(this.backupsDir, backup.file);
+        let integrity = "ok";
+        try {
+          const candidate = new this.SQL.Database(fs.readFileSync(filePath));
+          const check = candidate.exec("PRAGMA quick_check");
+          candidate.close();
+          if (check[0]?.values?.[0]?.[0] !== "ok") integrity = "invalid";
+        } catch {
+          integrity = "invalid";
+        }
+        return { ...backup, integrity, manual: /-\d{6}\.sqlite$/.test(backup.file) };
+      });
+  }
+
+  getBackupPath(file) {
+    const requested = String(file || "");
+    const name = path.basename(requested);
+    if (requested !== name) return null;
+    if (!backupNamePattern.test(name)) return null;
+    const filePath = path.join(this.backupsDir, name);
+    return fs.existsSync(filePath) && fs.statSync(filePath).isFile() ? filePath : null;
+  }
+
+  getSetting(key, fallback = null) {
+    const row = this.db.prepare("SELECT setting_value, updated_at FROM app_settings WHERE setting_key = ?").get(String(key));
+    if (!row) return { value: fallback, updatedAt: null };
+    try { return { value: JSON.parse(row.setting_value), updatedAt: Number(row.updated_at) }; }
+    catch { return { value: fallback, updatedAt: Number(row.updated_at) }; }
+  }
+
+  setSetting(key, value, now = Date.now()) {
+    this.db.prepare(`
+      INSERT INTO app_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+    `).run(String(key), JSON.stringify(value), Number(now));
+    return this.getSetting(key, value);
+  }
+
+  getMaintenance() {
+    const stored = this.getSetting("maintenance", { enabled: false, message: "O painel está temporariamente em manutenção." });
+    return {
+      enabled: Boolean(stored.value?.enabled),
+      message: String(stored.value?.message || "O painel está temporariamente em manutenção.").slice(0, 180),
+      updatedAt: stored.updatedAt
+    };
+  }
+
+  setMaintenance(enabled, message, now = Date.now()) {
+    this.setSetting("maintenance", {
+      enabled: Boolean(enabled),
+      message: String(message || "O painel está temporariamente em manutenção.").trim().slice(0, 180)
+    }, now);
+    return this.getMaintenance();
   }
 
   markMissingRoomsInactive(existingParentCids) {

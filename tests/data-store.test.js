@@ -101,6 +101,8 @@ test("stores operational history, incidents and admin alerts", () => withStore((
   assert.equal(history.coverage30d, 100);
   assert.equal(history.peakSlots30d, 12);
   assert.equal(history.incidents[0].resolvedAt, now + 300_000);
+  assert.equal(store.setIncidentNote(history.incidents[0].id, "Intervenção concluída", "Founder", now + 310_000), true);
+  assert.equal(store.getStatusHistory(now + 310_000).incidents[0].note, "Intervenção concluída");
 
   store.openAdminAlert("query", "query", "critical", "Query indisponível", now);
   assert.equal(store.getPendingAdminAlerts().length, 1);
@@ -120,6 +122,14 @@ test("creates atomic daily database backups and reports their state", () => with
   store.createBackup(now + 3_600_000);
   assert.equal(store.getBackupStatus().count, 1);
   assert.equal(fs.existsSync(path.join(store.backupsDir, "legendz-2026-10-17.sqlite")), true);
+  store.createBackup(now + 3_600_000, 14, true);
+  const backups = store.listBackups();
+  assert.equal(backups.length, 2);
+  assert.equal(backups[0].integrity, "ok");
+  assert.equal(backups.some((backup) => backup.manual), true);
+  assert.ok(store.getBackupPath(backups[0].file));
+  assert.equal(store.getBackupPath(`../${backups[0].file}`), null);
+  assert.equal(store.getBackupPath("../legendz.sqlite"), null);
 }));
 
 test("tracks administrative alert reads independently for each staff member", () => withStore((store) => {
@@ -139,6 +149,18 @@ test("tracks administrative alert reads independently for each staff member", ()
   store.resolveAdminAlert("query", "Query recuperada", now + 4);
   assert.equal(store.countUnreadAdminAlerts(10), 1);
   assert.equal(store.getAdminAlerts(20, 10).find((alert) => alert.id === Number(first.id)).read, false);
+  assert.equal(store.setAdminAlertNote(first.id, "A acompanhar", "Staff", now + 5), true);
+  assert.equal(store.getAdminAlerts(20, 10).find((alert) => alert.id === Number(first.id)).staffNote, "A acompanhar");
+}));
+
+test("persists maintenance mode and a safe public message", () => withStore((store) => {
+  assert.equal(store.getMaintenance().enabled, false);
+  const enabled = store.setMaintenance(true, "Atualização programada");
+  assert.equal(enabled.enabled, true);
+  assert.equal(enabled.message, "Atualização programada");
+  const disabled = store.setMaintenance(false, "Concluída");
+  assert.equal(disabled.enabled, false);
+  assert.ok(disabled.updatedAt);
 }));
 
 test("migrates existing rooms without enabling automatic expiry", async () => {
