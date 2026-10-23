@@ -263,6 +263,7 @@ const auditLabels = {
   "admin.room.delete": "Sala removida pelo Fundador",
   "admin.maintenance.update": "Manutenção alterada",
   "admin.backup.create": "Backup manual criado",
+  "admin.diagnostics.run": "Diagnóstico executado",
   "room.auto_delete": "Sala removida por inatividade",
   "room.expiry_warning": "Aviso de expiração enviado"
 };
@@ -366,6 +367,16 @@ function BackupManager({ backups = [], busy, onCreate }) {
   </section>;
 }
 
+function DiagnosticsPanel({ diagnostics, busy, onRun }) {
+  const overall = diagnostics?.summary?.overall || "idle";
+  const overallLabel = overall === "pass" ? "Tudo operacional" : overall === "warn" ? "Requer atenção" : overall === "fail" ? "Falhas detetadas" : "Ainda não executado";
+  return <section className={`panel admin-section diagnostics-section is-${overall}`}>
+    <div className="admin-section-head"><div><p className="eyebrow">Verificação segura</p><h3>Diagnóstico TeamSpeak</h3></div><button className="compact-action" type="button" disabled={Boolean(busy)} onClick={onRun}>{busy === "diagnostics" ? "A verificar..." : diagnostics ? "Executar novamente" : "Executar diagnóstico"}</button></div>
+    {!diagnostics && <div className="diagnostics-empty"><span aria-hidden="true">+</span><div><strong>Pronto para verificar</strong><p>Analisa Query, canais protegidos, grupos, salas, SQLite, backups, armazenamento e configuração segura.</p></div></div>}
+    {diagnostics && <><div className="diagnostics-summary"><span className={`diagnostics-overall is-${overall}`} aria-hidden="true">{overall === "pass" ? "✓" : overall === "warn" ? "!" : "×"}</span><div><strong>{overallLabel}</strong><small>{diagnostics.summary.pass} OK · {diagnostics.summary.warn} {diagnostics.summary.warn === 1 ? "aviso" : "avisos"} · {diagnostics.summary.fail} {diagnostics.summary.fail === 1 ? "falha" : "falhas"} · {diagnostics.durationMs} ms</small></div><time dateTime={new Date(diagnostics.ranAt).toISOString()}>{formatDate(diagnostics.ranAt)}</time></div><div className="diagnostics-list">{diagnostics.checks.map((check) => <article key={check.id} className={`is-${check.status}`}><span aria-hidden="true">{check.status === "pass" ? "✓" : check.status === "warn" ? "!" : "×"}</span><div><strong>{check.label}</strong><p>{check.detail}</p></div><b>{check.status === "pass" ? "OK" : check.status === "warn" ? "Aviso" : "Falha"}</b></article>)}</div></>}
+  </section>;
+}
+
 function IncidentTimeline({ incidents = [], busy, onNote, canManage }) {
   const [editing, setEditing] = useState(null);
   const [note, setNote] = useState("");
@@ -407,7 +418,7 @@ function AdminAlerts({ alerts = [], onRead, onNote, busy }) {
   </section>;
 }
 
-function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, confirmAction }) {
+function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, confirmAction }) {
   if (!data && busy) return <AdminSkeleton />;
   if (!data) return <section className="panel admin-unavailable"><p className="eyebrow">Administração</p><h2>Não foi possível abrir a supervisão</h2><p>{error || "Volta a tentar dentro de alguns instantes."}</p><button className="primary-button" type="button" onClick={() => onRefresh(true)}>Tentar novamente</button></section>;
 
@@ -426,6 +437,7 @@ function AdminDashboard({ data, busy, error, onRefresh, actionBusy, actionMessag
       <div><span className={`metric-dot ${data.counts?.unsynchronizedRooms ? "is-alert" : "is-good"}`} /><strong>{data.counts?.activeRooms ?? 0}</strong><small>Salas permanentes</small></div>
       <div><span className={`metric-dot ${data.counts?.failures24h ? "is-alert" : "is-good"}`} /><strong>{data.counts?.failures24h ?? 0}</strong><small>Falhas em 24 h</small></div>
     </section>
+    {canManage && <DiagnosticsPanel diagnostics={diagnostics} busy={actionBusy} onRun={onRunDiagnostics} />}
     <AdminAlerts alerts={data.alerts || []} onRead={onReadAlert} onNote={onNoteAlert} busy={actionBusy} />
     <OperationalChart history={data.history} />
     <div className="admin-grid">
@@ -474,6 +486,7 @@ function App() {
   const [groupsBusy, setGroupsBusy] = useState(false), [roomBusy, setRoomBusy] = useState(false), [roomOpen, setRoomOpen] = useState(false);
   const [view, setView] = useState("panel"), [adminData, setAdminData] = useState(null), [adminBusy, setAdminBusy] = useState(false), [adminError, setAdminError] = useState("");
   const [adminActionBusy, setAdminActionBusy] = useState(""), [adminActionMessage, setAdminActionMessage] = useState({ text: "", type: "success" });
+  const [diagnostics, setDiagnostics] = useState(null);
   const [toast, setToast] = useState(null), [confirmDialog, setConfirmDialog] = useState(null);
   const confirmResolver = useRef(null);
   const room = useMemo(() => normalizeRoom(auth.activeRoom), [auth.activeRoom]);
@@ -582,9 +595,21 @@ function App() {
     finally { setAdminActionBusy(""); }
   }
 
+  async function runDiagnostics() {
+    setAdminActionBusy("diagnostics");
+    try {
+      const result = await api("/api/admin/diagnostics", { method: "POST", body: "{}" });
+      setDiagnostics(result.diagnostics);
+      const summary = result.diagnostics?.summary;
+      showToast(summary?.fail ? `${summary.fail} ${summary.fail === 1 ? "falha encontrada" : "falhas encontradas"} no diagnóstico.` : summary?.warn ? `Diagnóstico concluído com ${summary.warn} ${summary.warn === 1 ? "aviso" : "avisos"}.` : "Diagnóstico concluído sem problemas.", summary?.fail ? "error" : "success");
+      await refreshAdmin(false);
+    } catch (error) { showToast(error.message, "error"); }
+    finally { setAdminActionBusy(""); }
+  }
+
   async function logout() {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch {}
-    csrfToken = ""; setSections([]); setSelections({}); setSavedSelections({}); setRoomOpen(false); setView("panel"); setAdminData(null); setAdminError(""); setAdminActionMessage({ text: "", type: "success" }); await refreshAuth();
+    csrfToken = ""; setSections([]); setSelections({}); setSavedSelections({}); setRoomOpen(false); setView("panel"); setAdminData(null); setDiagnostics(null); setAdminError(""); setAdminActionMessage({ text: "", type: "success" }); await refreshAuth();
   }
   async function applyGroups() {
     setGroupsBusy(true); setGroupMessage({ text: "A guardar grupos no TeamSpeak...", type: "neutral" });
@@ -626,7 +651,7 @@ function App() {
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
     {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração{Boolean(adminData?.counts?.unreadAlerts) && <span className="nav-alert-count">{adminData.counts.unreadAlerts}</span>}</button></nav>}
     {auth.authenticated && view === "panel" && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} enabled={enabled} confirmAction={confirmAction} /></div></div>}
-    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} confirmAction={confirmAction} /></div>}
+    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} diagnostics={diagnostics} onRunDiagnostics={runDiagnostics} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} confirmAction={confirmAction} /></div>}
     <Footer />
   </main>{auth.authenticated && <nav className="mobile-command-bar" aria-label="Navegação rápida"><button type="button" onClick={() => navigateMobile("panel-top")}><span aria-hidden="true">⌂</span>Painel</button><button type="button" onClick={() => navigateMobile("groups-panel")}><span aria-hidden="true">#</span>Grupos</button><button type="button" onClick={() => navigateMobile(room ? "room-manager" : "room-creator")}><span aria-hidden="true">+</span>Sala</button>{auth.isAdmin && <button type="button" onClick={() => navigateMobile("admin")}><span aria-hidden="true">!</span>Admin{Boolean(adminData?.counts?.unreadAlerts) && <b>{adminData.counts.unreadAlerts}</b>}</button>}</nav>}<ToastRegion toast={toast} onClose={() => setToast(null)} /><ConfirmDialog dialog={confirmDialog} onResolve={resolveConfirm} /></>;
 }

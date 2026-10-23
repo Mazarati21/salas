@@ -163,6 +163,11 @@ test("persists maintenance mode and a safe public message", () => withStore((sto
   assert.ok(disabled.updatedAt);
 }));
 
+test("verifies the live SQLite database integrity", () => withStore((store) => {
+  store.insertRoom(sampleRoom());
+  assert.equal(store.checkIntegrity(), true);
+}));
+
 test("migrates existing rooms without enabling automatic expiry", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "legendz-legacy-store-"));
   try {

@@ -657,6 +657,16 @@ class DataStore {
     };
   }
 
+  checkIntegrity() {
+    this.db.persist();
+    try {
+      const rows = this.db.prepare("PRAGMA quick_check").all();
+      return rows.length > 0 && rows.every((row) => Object.values(row)[0] === "ok");
+    } catch {
+      return false;
+    }
+  }
+
   listBackups(limit = 20) {
     if (!fs.existsSync(this.backupsDir)) return [];
     return fs.readdirSync(this.backupsDir)

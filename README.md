@@ -19,6 +19,8 @@ Website LegendZ e painel web para autenticar utilizadores através do TeamSpeak,
 - Modo de manutenção controlado pelo Fundador, comunicado também na página pública de Estado.
 - Backups automáticos e manuais com verificação de integridade e descarga reservada ao Fundador.
 - Modelos de sala, notificações discretas, confirmações próprias e navegação móvel fixa.
+- Diagnóstico exclusivo do Fundador para Query, estrutura de canais, grupos, SQLite, backups, armazenamento e configuração segura.
+- Proteção de publicação no GitHub e no cPanel, executada antes de qualquer ficheiro ativo ser substituído.
 - Tema claro e escuro, layout responsivo e ícones reais do TeamSpeak.
 
 ## Desenvolvimento
@@ -29,6 +31,7 @@ Requer Node.js 20.20 ou posterior.
 npm install
 npm run build
 npm test
+npm run release:verify
 ```
 
 Define as variáveis `TS_HOST`, `TS_QUERY_PORT`, `TS_VOICE_PORT`, `TS_USER` e `TS_PASS`. Opcionalmente, usa `TS_QUERY_NICKNAME` para identificar o cliente técnico no TeamSpeak; o valor predefinido é `LegendZ Salas`. Depois executa:
@@ -98,7 +101,9 @@ Se o cPanel estiver atrás de Cloudflare, ativa a restauração segura do IP rea
 
 O repositório inclui todo o código e o bundle compilado. `.env`, SQLite, sessões, auditoria e cache de ícones estão excluídos pelo `.gitignore`. Depois de associares um remote, o cPanel pode clonar o repositório através de **Git Version Control** e usar essa pasta como Application root.
 
-O `.cpanel.yml` publica apenas os ficheiros necessários em `/home/legendzc/salas`, instala as dependências de produção no ambiente Node 20 e reinicia o Passenger através de `tmp/restart.txt`. A pasta `data/` não é substituída durante novos deployments.
+O `.cpanel.yml` começa por instalar as dependências numa área de checkout e executar `npm run release:verify`. Só depois de build, testes, validação sintática, assinatura do bundle e release guard passarem é que os ficheiros ativos são substituídos em `/home/legendzc/salas`. No fim instala apenas as dependências de produção e reinicia o Passenger através de `tmp/restart.txt`. A pasta `data/` não é substituída durante novos deployments.
+
+O workflow `.github/workflows/release-guard.yml` repete as verificações em cada push e pull request para `main`, incluindo `npm audit`. Uma falha no cPanel termina a tarefa antes da primeira cópia, mantendo online a versão anterior.
 
 Nesta conta, o repositório cPanel deve ser clonado para `/home/legendzc/repositories/legendz-salas`. Um cron pode atualizar esse clone a partir do GitHub e iniciar o deployment automaticamente após cada alteração em `main`.
 
@@ -109,6 +114,8 @@ O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a
 A vista **Administração** só aparece quando o utilizador autenticado está ligado ao TeamSpeak e pertence a um dos grupos definidos em `TS_ADMIN_GROUP_IDS`. A API volta a confirmar o grupo no TeamSpeak em cada acesso, pelo que esconder o botão no browser não é a barreira de segurança.
 
 Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura, podem registar notas operacionais internas e recebem alertas privados quando estão ligados ao TeamSpeak. A caixa de notificações mantém o estado lido/não lido separado por conta. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem publicar notas de incidente, terminar sessões web de terceiros, remover salas permanentes, controlar a manutenção e gerir backups; cada ação destrutiva volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
+
+O diagnóstico é também exclusivo do Fundador, tem limite de utilização, exige CSRF e volta a confirmar o grupo diretamente no TeamSpeak. Usa apenas comandos de leitura e nunca cria canais, altera grupos ou testa passwords.
 
 ## Publicação num VPS
 

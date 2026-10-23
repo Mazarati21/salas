@@ -4,6 +4,7 @@ const net = require("net");
 const path = require("path");
 const crypto = require("crypto");
 const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-utils");
+const { diagnosticCheck, evaluateTeamSpeakStructure, summarizeDiagnostics } = require("./tools/diagnostics");
 const { DataStore } = require("./tools/data-store");
 const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
 const { publicServerMetrics } = require("./tools/server-metrics");
@@ -1263,6 +1264,83 @@ async function createManualBackupAsFounder(session) {
   return { backups: store.listBackups() };
 }
 
+async function runFounderDiagnostics(session) {
+  const startedAt = Date.now();
+  const teamSpeakState = await withTeamSpeak(async (ts) => {
+    await requireFounder(ts, session);
+    const queryStartedAt = Date.now();
+    async function readQuery(label, command) {
+      try { return { items: parseItems(await ts.command(label, command)), error: null }; }
+      catch (error) { return { items: [], error: cleanPublicText(error?.message, "Permissão de leitura indisponível.", 160) }; }
+    }
+    const identity = await readQuery("diagnóstico de identidade Query", "whoami");
+    const server = await readQuery("diagnóstico do servidor", "serverinfo");
+    const channelList = await readQuery("diagnóstico dos canais", "channellist -flags");
+    const groupList = await readQuery("diagnóstico dos grupos", "servergrouplist");
+    return {
+      whoami: identity.items[0] || {}, identityError: identity.error,
+      info: server.items[0] || {}, serverError: server.error,
+      channels: channelList.items, channelError: channelList.error,
+      groups: groupList.items, groupError: groupList.error,
+      latencyMs: Date.now() - queryStartedAt
+    };
+  });
+
+  const activeRooms = store.getRooms().filter((room) => room.active);
+  const roomChannelIds = activeRooms.flatMap((room) => [
+    room.teamspeak.topLineCid,
+    room.teamspeak.parentCid,
+    ...room.channels.map((channel) => channel.cid)
+  ]);
+  const checks = [
+    diagnosticCheck("query", "Ligação ServerQuery", "pass", `Autenticada em ${teamSpeakState.latencyMs} ms.`),
+    diagnosticCheck("voice-server", "Servidor virtual", teamSpeakState.serverError ? "fail" : teamSpeakState.info.virtualserver_name ? "pass" : "warn", teamSpeakState.serverError || (teamSpeakState.info.virtualserver_name ? `${cleanPublicText(teamSpeakState.info.virtualserver_name, "TeamSpeak", 80)} · ${teamSpeakState.info.virtualserver_clientsonline || 0}/${teamSpeakState.info.virtualserver_maxclients || 0} ligações.` : "O servidor respondeu sem nome público.")),
+    diagnosticCheck("query-identity", "Identidade técnica", teamSpeakState.identityError ? "fail" : teamSpeakState.whoami.client_database_id ? "pass" : "warn", teamSpeakState.identityError || (teamSpeakState.whoami.client_database_id ? `Conta Query DB #${Number(teamSpeakState.whoami.client_database_id)} confirmada.` : "A identidade Query não devolveu um identificador de base de dados."))
+  ];
+  const structureChecks = evaluateTeamSpeakStructure({
+      channels: teamSpeakState.channels,
+      groups: teamSpeakState.groups,
+      roomChannelIds,
+      config: {
+        tempSpacerCid,
+        protectedThinSeparatorCid,
+        protectedThinSeparatorName,
+        channelAdminGroupId,
+        adminGroupIds: [...adminGroupIds],
+        founderGroupIds: [...founderGroupIds]
+      }
+    });
+  for (const check of structureChecks) {
+    const channelDependent = ["temp-spacer", "protected-separator", "separator-order", "room-sync"].includes(check.id);
+    const groupDependent = ["channel-admin-group", "admin-groups", "founder-groups"].includes(check.id);
+    if (channelDependent && teamSpeakState.channelError) checks.push(diagnosticCheck(check.id, check.label, "fail", teamSpeakState.channelError));
+    else if (groupDependent && teamSpeakState.groupError) checks.push(diagnosticCheck(check.id, check.label, "fail", teamSpeakState.groupError));
+    else checks.push(check);
+  }
+
+  const databaseHealthy = store.checkIntegrity();
+  checks.push(diagnosticCheck("database", "Integridade SQLite", databaseHealthy ? "pass" : "fail", databaseHealthy ? "PRAGMA quick_check concluído sem erros." : "A base de dados não passou a verificação de integridade."));
+
+  const backups = store.listBackups(5);
+  const invalidBackups = backups.filter((backup) => backup.integrity !== "ok");
+  checks.push(diagnosticCheck("backups", "Backups recentes", invalidBackups.length ? "fail" : backups.length ? "pass" : "warn", invalidBackups.length ? `${invalidBackups.length} backups falharam a verificação.` : backups.length ? `${backups.length} backups recentes foram verificados.` : "Ainda não existem backups disponíveis."));
+
+  try {
+    const disk = fs.statfsSync(dataDir);
+    const freeBytes = Number(disk.bavail) * Number(disk.bsize);
+    const status = freeBytes < 100 * 1024 * 1024 ? "fail" : freeBytes < 500 * 1024 * 1024 ? "warn" : "pass";
+    checks.push(diagnosticCheck("storage", "Espaço para dados", status, `${Math.max(0, freeBytes / 1024 / 1024 / 1024).toFixed(2)} GB disponíveis.`));
+  } catch {
+    checks.push(diagnosticCheck("storage", "Espaço para dados", "warn", "O alojamento não disponibilizou a capacidade livre."));
+  }
+
+  const productionSecurity = isProduction && trustProxy && cookieSecure && allowedHost && configuredSecret.length >= 32;
+  checks.push(diagnosticCheck("runtime-security", "Configuração de produção", productionSecurity ? "pass" : isProduction ? "fail" : "warn", productionSecurity ? "HTTPS, proxy confiável, cookie seguro e segredo de sessão estão ativos." : isProduction ? "Uma ou mais proteções obrigatórias não estão ativas." : "Ambiente local; as exigências de produção não se aplicam."));
+  checks.push(diagnosticCheck("read-only", "Segurança do teste", "pass", "Foram usados apenas comandos de leitura; nenhuma sala, grupo ou permissão foi alterada."));
+
+  return { ranAt: Date.now(), durationMs: Date.now() - startedAt, summary: summarizeDiagnostics(checks), checks };
+}
+
 async function requireFounderForBackup(request) {
   const session = requireSession(request);
   await withTeamSpeak((ts) => requireFounder(ts, session));
@@ -1279,6 +1357,7 @@ async function handleApi(request, response, pathname) {
       ["/api/groups", ["GET", "POST"]], ["/api/rooms", ["POST", "PATCH", "DELETE"]],
       ["/api/admin/overview", ["GET"]], ["/api/admin/alerts/read", ["POST"]], ["/api/admin/alerts/note", ["POST"]],
       ["/api/admin/incidents/note", ["POST"]], ["/api/admin/maintenance", ["POST"]],
+      ["/api/admin/diagnostics", ["POST"]],
       ["/api/admin/backups", ["POST"]], ["/api/admin/backups/download", ["GET"]],
       ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
     ]);
@@ -1371,6 +1450,14 @@ async function handleApi(request, response, pathname) {
       enforceRateLimit(`backup:${session.database_id}`, 3, 60 * 60 * 1000);
       const payload = await auditAction(request, session, "admin.backup.create", null, () => createManualBackupAsFounder(session));
       sendJson(response, 201, { ok: true, ...payload });
+      return;
+    }
+
+    if (pathname === "/api/admin/diagnostics" && request.method === "POST") {
+      const session = requireSession(request, true);
+      enforceRateLimit(`diagnostics:${session.database_id}`, 5, 10 * 60 * 1000);
+      const diagnostics = await auditAction(request, session, "admin.diagnostics.run", null, () => runFounderDiagnostics(session));
+      sendJson(response, 200, { ok: true, diagnostics });
       return;
     }
 
