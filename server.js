@@ -1277,11 +1277,13 @@ async function runFounderDiagnostics(session) {
     const server = await readQuery("diagnóstico do servidor", "serverinfo");
     const channelList = await readQuery("diagnóstico dos canais", "channellist -flags");
     const groupList = await readQuery("diagnóstico dos grupos", "servergrouplist");
+    const channelGroupList = await readQuery("diagnóstico dos grupos de canal", "channelgrouplist");
     return {
       whoami: identity.items[0] || {}, identityError: identity.error,
       info: server.items[0] || {}, serverError: server.error,
       channels: channelList.items, channelError: channelList.error,
       groups: groupList.items, groupError: groupList.error,
+      channelGroups: channelGroupList.items, channelGroupError: channelGroupList.error,
       latencyMs: Date.now() - queryStartedAt
     };
   });
@@ -1300,6 +1302,7 @@ async function runFounderDiagnostics(session) {
   const structureChecks = evaluateTeamSpeakStructure({
       channels: teamSpeakState.channels,
       groups: teamSpeakState.groups,
+      channelGroups: teamSpeakState.channelGroups,
       roomChannelIds,
       config: {
         tempSpacerCid,
@@ -1312,8 +1315,10 @@ async function runFounderDiagnostics(session) {
     });
   for (const check of structureChecks) {
     const channelDependent = ["temp-spacer", "protected-separator", "separator-order", "room-sync"].includes(check.id);
-    const groupDependent = ["channel-admin-group", "admin-groups", "founder-groups"].includes(check.id);
+    const channelGroupDependent = check.id === "channel-admin-group";
+    const groupDependent = ["admin-groups", "founder-groups"].includes(check.id);
     if (channelDependent && teamSpeakState.channelError) checks.push(diagnosticCheck(check.id, check.label, "fail", teamSpeakState.channelError));
+    else if (channelGroupDependent && teamSpeakState.channelGroupError) checks.push(diagnosticCheck(check.id, check.label, "fail", teamSpeakState.channelGroupError));
     else if (groupDependent && teamSpeakState.groupError) checks.push(diagnosticCheck(check.id, check.label, "fail", teamSpeakState.groupError));
     else checks.push(check);
   }

@@ -14,7 +14,8 @@ const config = {
 test("reports a healthy TeamSpeak structure", () => {
   const checks = evaluateTeamSpeakStructure({
     channels: [{ cid: "902", channel_order: "33738" }, { cid: "33738", channel_name: config.protectedThinSeparatorName }, { cid: "4500" }],
-    groups: [{ sgid: "49" }, { sgid: "114" }, { sgid: "232" }],
+    groups: [{ sgid: "114" }, { sgid: "232" }],
+    channelGroups: [{ cgid: "49" }],
     roomChannelIds: [4500],
     config
   });
@@ -24,7 +25,8 @@ test("reports a healthy TeamSpeak structure", () => {
 test("distinguishes blocking failures from warnings", () => {
   const checks = evaluateTeamSpeakStructure({
     channels: [{ cid: "33738", channel_name: "nome errado" }],
-    groups: [{ sgid: "49" }, { sgid: "232" }],
+    groups: [{ sgid: "232" }],
+    channelGroups: [],
     roomChannelIds: [4500],
     config
   });
