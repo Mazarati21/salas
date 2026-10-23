@@ -5,7 +5,11 @@ const { execFileSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const results = [];
-const requiredFiles = ["app.jsx", "app.js", "index.html", "server.js", "styles.css", "package-lock.json", ".cpanel.yml", "public/legendz.css", "public/legendz.js"];
+const requiredFiles = [
+  "app.jsx", "app.js", "index.html", "server.js", "styles.css", "package-lock.json", ".cpanel.yml",
+  "public/legendz.css", "public/legendz.js", "assets/background-light-v3.png", "assets/background-dark-v3.png",
+  "assets/fonts/manrope-latin.woff2", "assets/fonts/sora-latin.woff2"
+];
 function add(label, pass, detail) { results.push({ label, pass, detail }); }
 function read(file) { return fs.readFileSync(path.join(root, file), "utf8"); }
 
@@ -42,6 +46,9 @@ const deployment = read(".cpanel.yml");
 const guardAt = deployment.indexOf("npm run release:verify");
 const firstCopyAt = deployment.indexOf("/bin/cp -f");
 add("Bloqueio antes da publicação", guardAt >= 0 && firstCopyAt >= 0 && guardAt < firstCopyAt, "O cPanel valida a release antes da primeira cópia");
+const visualAssets = ["background-light-v3.png", "background-dark-v3.png", "manrope-latin.woff2", "sora-latin.woff2"];
+const missingDeployAssets = visualAssets.filter((asset) => !deployment.includes(asset));
+add("Assets visuais publicados", missingDeployAssets.length === 0, missingDeployAssets.length ? `Em falta no cPanel: ${missingDeployAssets.join(", ")}` : "Fundos e fontes locais incluídos no deployment");
 
 let tracked = "";
 try { tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }); } catch {}

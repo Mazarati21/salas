@@ -8,7 +8,9 @@ deployment:
     - /bin/cp -f tools/build-app.js tools/data-store.js tools/teamspeak-query.js tools/diagnostics.js tools/release-guard.js tools/restore-backup.js /home/legendzc/salas/tools/
     - /bin/cp -f tools/admin-utils.js tools/room-activity.js tools/server-metrics.js /home/legendzc/salas/tools/
     - /bin/cp -f vendor/react.production.min.js vendor/react-dom.production.min.js /home/legendzc/salas/vendor/
-    - /bin/cp -f assets/background-light.png assets/background-dark.png assets/favicon.svg /home/legendzc/salas/assets/
+    - /bin/mkdir -p /home/legendzc/salas/assets/fonts
+    - /bin/cp -f assets/background-light.png assets/background-dark.png assets/background-light-v3.png assets/background-dark-v3.png assets/favicon.svg /home/legendzc/salas/assets/
+    - /bin/cp -f assets/fonts/manrope-latin.woff2 assets/fonts/sora-latin.woff2 /home/legendzc/salas/assets/fonts/
     - /bin/cp -f homepage/index.html /home/legendzc/public_html/index.html
     - /bin/cp -f status/index.html /home/legendzc/public_html/status/index.html
     - /bin/cp -f status/.htaccess /home/legendzc/public_html/status/.htaccess
