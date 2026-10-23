@@ -85,7 +85,8 @@ const mimeTypes = {
   ".js": "text/javascript; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2"
 };
 
 class HttpError extends Error {
@@ -1598,7 +1599,10 @@ function serveStatic(response, pathname) {
   const publicFiles = new Set([
     "index.html", "styles.css", "theme.js", "app.js",
     "vendor/react.production.min.js", "vendor/react-dom.production.min.js",
-    "assets/background-light.png", "assets/background-dark.png", "assets/favicon.svg"
+    "assets/background-light.png", "assets/background-dark.png",
+    "assets/background-light-v3.png", "assets/background-dark-v3.png",
+    "assets/fonts/manrope-latin.woff2", "assets/fonts/sora-latin.woff2",
+    "assets/favicon.svg"
   ]);
   const safePath = pathname === "/" ? "index.html" : pathname.slice(1);
   if (!publicFiles.has(safePath)) {

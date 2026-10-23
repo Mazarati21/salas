@@ -36,6 +36,9 @@ add("Versões do painel", Boolean(appVersion && styleVersion), appVersion && sty
 const serverSource = read("server.js");
 const appSource = read("app.jsx");
 add("Contrato do diagnóstico", serverSource.includes('["/api/admin/diagnostics", ["POST"]]') && serverSource.includes("requireFounder(ts, session)") && appSource.includes('api("/api/admin/diagnostics", { method: "POST"'), "Endpoint POST, validação Fundador e cliente React presentes");
+const visualAssets = ["background-light-v3.png", "background-dark-v3.png", "manrope-latin.woff2", "sora-latin.woff2"];
+const missingStaticAssets = visualAssets.filter((asset) => !serverSource.includes(asset));
+add("Assets visuais servidos", missingStaticAssets.length === 0 && serverSource.includes('".woff2": "font/woff2"'), missingStaticAssets.length ? `Em falta no servidor: ${missingStaticAssets.join(", ")}` : "Fundos e fontes permitidos pelo servidor");
 
 const publicPages = ["homepage/index.html", "status/index.html", "bans/index.html"].map(read);
 const publicJsVersions = new Set(publicPages.map((content) => content.match(/legendz\.js\?v=(\d+)/)?.[1]));
@@ -46,7 +49,6 @@ const deployment = read(".cpanel.yml");
 const guardAt = deployment.indexOf("npm run release:verify");
 const firstCopyAt = deployment.indexOf("/bin/cp -f");
 add("Bloqueio antes da publicação", guardAt >= 0 && firstCopyAt >= 0 && guardAt < firstCopyAt, "O cPanel valida a release antes da primeira cópia");
-const visualAssets = ["background-light-v3.png", "background-dark-v3.png", "manrope-latin.woff2", "sora-latin.woff2"];
 const missingDeployAssets = visualAssets.filter((asset) => !deployment.includes(asset));
 add("Assets visuais publicados", missingDeployAssets.length === 0, missingDeployAssets.length ? `Em falta no cPanel: ${missingDeployAssets.join(", ")}` : "Fundos e fontes locais incluídos no deployment");
 
