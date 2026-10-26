@@ -426,16 +426,16 @@ function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRe
   const canManage = Boolean(data.permissions?.canManage);
   return <div className="admin-dashboard">
     <section className="admin-heading" aria-labelledby="admin-title">
-      <div><p className="eyebrow">Área reservada</p><h2 id="admin-title">Administração e segurança</h2><p>{canManage ? "Ações operacionais exclusivas do grupo Fundador." : "Supervisão em modo de leitura. Os endereços de rede aparecem anonimizados."}</p></div>
-      <div className="admin-heading-actions"><span className={`readonly-badge ${canManage ? "is-manage" : ""}`}>{canManage ? "Ações de Fundador" : "Só leitura"}</span><button className="refresh-button" type="button" onClick={() => onRefresh(true)} disabled={busy || Boolean(actionBusy)}>{busy ? "A atualizar..." : "Atualizar dados"}</button></div>
+      <div className="admin-heading-copy"><p className="admin-heading-kicker"><span aria-hidden="true" />Centro de operações</p><h2 id="admin-title">Administração e segurança</h2><p>{canManage ? "Supervisão do TeamSpeak, acessos e infraestrutura num único painel." : "Supervisão em modo de leitura. Os endereços de rede aparecem anonimizados."}</p></div>
+      <div className="admin-heading-side"><div className="admin-command-state"><span className="command-state-dot" aria-hidden="true" /><div><strong>Monitorização ativa</strong><small>Atualização automática a cada 30 segundos</small></div></div><div className="admin-heading-actions"><span className={`readonly-badge ${canManage ? "is-manage" : ""}`}>{canManage ? "Acesso Fundador" : "Só leitura"}</span><button className="refresh-button" type="button" onClick={() => onRefresh(true)} disabled={busy || Boolean(actionBusy)}><span aria-hidden="true">↻</span>{busy ? "A atualizar..." : "Atualizar"}</button></div></div>
     </section>
     {error && <div className="admin-warning" role="status">{error} A mostrar os últimos dados disponíveis.</div>}
     {actionMessage.text && <div className={`admin-action-message is-${actionMessage.type}`} role="status">{actionMessage.text}</div>}
     <section className="metric-strip" aria-label="Resumo administrativo">
-      <div><span className="metric-dot is-good" /><strong>{data.health?.queryLatencyMs ?? "-"} ms</strong><small>Resposta Query</small></div>
-      <div><span className="metric-dot is-good" /><strong>{data.counts?.activeSessions ?? 0}</strong><small>Sessões ativas</small></div>
-      <div><span className={`metric-dot ${data.counts?.unsynchronizedRooms ? "is-alert" : "is-good"}`} /><strong>{data.counts?.activeRooms ?? 0}</strong><small>Salas permanentes</small></div>
-      <div><span className={`metric-dot ${data.counts?.failures24h ? "is-alert" : "is-good"}`} /><strong>{data.counts?.failures24h ?? 0}</strong><small>Falhas em 24 h</small></div>
+      <div className="admin-metric"><span className="metric-index">01</span><span className="metric-dot is-good" /><strong>{data.health?.queryLatencyMs ?? "-"} ms</strong><small>Resposta ServerQuery</small></div>
+      <div className="admin-metric"><span className="metric-index">02</span><span className="metric-dot is-good" /><strong>{data.counts?.activeSessions ?? 0}</strong><small>Sessões web ativas</small></div>
+      <div className={`admin-metric ${data.counts?.unsynchronizedRooms ? "has-alert" : ""}`}><span className="metric-index">03</span><span className={`metric-dot ${data.counts?.unsynchronizedRooms ? "is-alert" : "is-good"}`} /><strong>{data.counts?.activeRooms ?? 0}</strong><small>Salas permanentes</small></div>
+      <div className={`admin-metric ${data.counts?.failures24h ? "has-alert" : ""}`}><span className="metric-index">04</span><span className={`metric-dot ${data.counts?.failures24h ? "is-alert" : "is-good"}`} /><strong>{data.counts?.failures24h ?? 0}</strong><small>Falhas nas últimas 24 h</small></div>
     </section>
     {canManage && <DiagnosticsPanel diagnostics={diagnostics} busy={actionBusy} onRun={onRunDiagnostics} />}
     <AdminAlerts alerts={data.alerts || []} onRead={onReadAlert} onNote={onNoteAlert} busy={actionBusy} />
