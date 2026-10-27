@@ -5,7 +5,7 @@ deployment:
     - /bin/bash -lc 'source /home/legendzc/nodevenv/salas/20/bin/activate && npm ci --include=dev && npm run release:verify'
     - /usr/bin/touch /home/legendzc/public_html/salas/.htaccess
     - /bin/cp -f app.js app.jsx index.html package.json package-lock.json server.js styles.css theme.js /home/legendzc/salas/
-    - /bin/cp -f tools/build-app.js tools/data-store.js tools/teamspeak-query.js tools/diagnostics.js tools/release-guard.js tools/restore-backup.js /home/legendzc/salas/tools/
+    - /bin/cp -f tools/build-app.js tools/data-store.js tools/teamspeak-query.js tools/diagnostics.js tools/legacy-rooms.js tools/release-guard.js tools/restore-backup.js /home/legendzc/salas/tools/
     - /bin/cp -f tools/admin-utils.js tools/room-activity.js tools/server-metrics.js /home/legendzc/salas/tools/
     - /bin/cp -f vendor/react.production.min.js vendor/react-dom.production.min.js /home/legendzc/salas/vendor/
     - /bin/mkdir -p /home/legendzc/salas/assets/fonts

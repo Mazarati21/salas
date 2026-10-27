@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..");
 const results = [];
 const requiredFiles = [
   "app.jsx", "app.js", "index.html", "server.js", "styles.css", "package-lock.json", ".cpanel.yml",
+  "tools/legacy-rooms.js",
   "public/legendz.css", "public/legendz.js", "assets/background-light-v3.png", "assets/background-dark-v3.png",
   "assets/fonts/manrope-latin.woff2", "assets/fonts/sora-latin.woff2"
 ];
@@ -22,7 +23,7 @@ if (!missing.includes("app.jsx") && !missing.includes("app.js")) {
   add("Bundle React atualizado", bundleHash === sourceHash, bundleHash ? `Hash ${sourceHash.slice(0, 12)}` : "O bundle não contém a assinatura da origem");
 }
 
-const syntaxFiles = ["server.js", "tools/data-store.js", "tools/teamspeak-query.js", "tools/diagnostics.js", "tools/restore-backup.js"];
+const syntaxFiles = ["server.js", "tools/data-store.js", "tools/teamspeak-query.js", "tools/diagnostics.js", "tools/legacy-rooms.js", "tools/restore-backup.js"];
 for (const file of syntaxFiles) {
   try { execFileSync(process.execPath, ["--check", path.join(root, file)], { stdio: "ignore" }); add(`Sintaxe ${file}`, true, "Válida"); }
   catch { add(`Sintaxe ${file}`, false, "Node.js rejeitou o ficheiro"); }
@@ -51,6 +52,7 @@ const firstCopyAt = deployment.indexOf("/bin/cp -f");
 add("Bloqueio antes da publicação", guardAt >= 0 && firstCopyAt >= 0 && guardAt < firstCopyAt, "O cPanel valida a release antes da primeira cópia");
 const missingDeployAssets = visualAssets.filter((asset) => !deployment.includes(asset));
 add("Assets visuais publicados", missingDeployAssets.length === 0, missingDeployAssets.length ? `Em falta no cPanel: ${missingDeployAssets.join(", ")}` : "Fundos e fontes locais incluídos no deployment");
+add("Módulos do servidor publicados", deployment.includes("tools/legacy-rooms.js"), "O importador de salas antigas está incluído no deployment");
 
 let tracked = "";
 try { tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }); } catch {}
