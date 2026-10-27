@@ -261,6 +261,7 @@ const auditLabels = {
   "room.delete": "Sala apagada",
   "admin.session.revoke": "Sessão terminada pelo Fundador",
   "admin.room.delete": "Sala removida pelo Fundador",
+  "admin.rooms.import": "Salas antigas importadas",
   "admin.maintenance.update": "Manutenção alterada",
   "admin.backup.create": "Backup manual criado",
   "admin.diagnostics.run": "Diagnóstico executado",
@@ -387,7 +388,7 @@ function IncidentTimeline({ incidents = [], busy, onNote, canManage }) {
   </section>;
 }
 
-function RoomOperations({ rooms = [], canManage, busy, onDeleteRoom, confirmAction }) {
+function RoomOperations({ rooms = [], canManage, busy, onDeleteRoom, onImportRooms, confirmAction }) {
   const [filter, setFilter] = useState("all");
   const filters = [
     { key: "all", label: "Todas" },
@@ -397,7 +398,7 @@ function RoomOperations({ rooms = [], canManage, busy, onDeleteRoom, confirmActi
   ];
   const visible = rooms.filter((room) => filter === "all" || (filter === "expiring" && room.autoExpire && room.remainingDays <= 7) || (filter === "idle" && room.inactivityDays >= 14) || (filter === "unsynced" && !room.synchronized));
   return <section className="panel admin-section rooms-section">
-    <div className="admin-section-head"><div><p className="eyebrow">TeamSpeak</p><h3>Salas permanentes</h3></div><span className="badge">{rooms.length}</span></div>
+    <div className="admin-section-head"><div><p className="eyebrow">TeamSpeak</p><h3>Salas permanentes</h3></div><div className="alerts-head-actions"><span className="badge">{rooms.length}</span>{canManage && <button className="compact-action" type="button" disabled={Boolean(busy)} onClick={async () => await confirmAction({ title: "Importar salas antigas", message: "O painel vai procurar estruturas compatíveis acima das salas temporárias e associá-las ao respetivo Channel Admin. Nenhum canal será alterado ou apagado.", confirmLabel: "Importar salas" }) && onImportRooms()}>{busy === "rooms:import" ? "A procurar..." : "Importar antigas"}</button>}</div></div>
     <div className="room-filter-bar" role="group" aria-label="Filtrar salas">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} onClick={() => setFilter(item.key)}>{item.label}</button>)}</div>
     <div className="room-status-list">{visible.map((item) => { const tone = !item.synchronized ? "is-danger" : item.autoExpire && item.remainingDays <= 7 ? "is-warning" : "is-success"; const status = !item.synchronized ? "Rever" : item.autoExpire && item.remainingDays <= 7 ? `${item.remainingDays} d` : "Ativa"; return <div key={item.id}><span><strong>{item.title}</strong><small>{item.creator?.nickname || "Utilizador"} · {item.channelCount} canais · atividade {item.inactivityDays === 0 ? "hoje" : `há ${item.inactivityDays} d`}</small></span><span className="room-admin-controls"><span className={`status-chip ${tone}`}>{status}</span>{canManage && <button className="table-action is-danger" type="button" disabled={Boolean(busy)} onClick={async () => await confirmAction({ title: "Apagar sala permanente", message: `A sala “${item.title}” e os respetivos canais serão removidos do TeamSpeak.`, confirmLabel: "Apagar sala", danger: true }) && onDeleteRoom(item)}>{busy === `room:${item.id}` ? "A apagar..." : "Apagar"}</button>}</span></div>; })}{!visible.length && <p className="empty-admin-row">Não existem salas neste filtro.</p>}</div>
   </section>;
@@ -418,7 +419,7 @@ function AdminAlerts({ alerts = [], onRead, onNote, busy }) {
   </section>;
 }
 
-function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, confirmAction }) {
+function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, onImportRooms, confirmAction }) {
   if (!data && busy) return <AdminSkeleton />;
   if (!data) return <section className="panel admin-unavailable"><p className="eyebrow">Administração</p><h2>Não foi possível abrir a supervisão</h2><p>{error || "Volta a tentar dentro de alguns instantes."}</p><button className="primary-button" type="button" onClick={() => onRefresh(true)}>Tentar novamente</button></section>;
 
@@ -463,7 +464,7 @@ function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRe
         <div className="admin-section-head"><div><p className="eyebrow">Acesso web</p><h3>Sessões ativas</h3></div><span className="badge">{data.sessions?.length || 0}</span></div>
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Utilizador</th><th>Rede</th><th>Última atividade</th><th>Expira</th>{canManage && <th>Ação</th>}</tr></thead><tbody>{(data.sessions || []).map((session) => { const ownSession = Number(session.databaseId) === Number(data.administrator?.databaseId); return <tr key={`${session.databaseId}-${session.createdAt}`}><td><strong>{session.nickname}</strong><small>DB #{session.databaseId}</small></td><td>{session.ip}</td><td>{formatDate(session.lastSeenAt)}</td><td>{formatDate(session.expiresAt)}</td>{canManage && <td><button className="table-action" type="button" disabled={ownSession || Boolean(actionBusy)} title={ownSession ? "A tua sessão está protegida" : "Terminar todas as sessões deste utilizador"} onClick={async () => await confirmAction({ title: "Terminar sessões", message: `Todas as sessões web de ${session.nickname} serão revogadas.`, confirmLabel: "Terminar sessões", danger: true }) && onRevokeSession(session)}>{actionBusy === `session:${session.databaseId}` ? "A terminar..." : ownSession ? "Sessão atual" : "Terminar"}</button></td>}</tr>; })}{!data.sessions?.length && <tr><td colSpan={canManage ? 5 : 4} className="empty-table">Não existem sessões ativas.</td></tr>}</tbody></table></div>
       </section>
-      <RoomOperations rooms={data.rooms || []} canManage={canManage} busy={actionBusy} onDeleteRoom={onDeleteRoom} confirmAction={confirmAction} />
+      <RoomOperations rooms={data.rooms || []} canManage={canManage} busy={actionBusy} onDeleteRoom={onDeleteRoom} onImportRooms={onImportRooms} confirmAction={confirmAction} />
       <IncidentTimeline incidents={data.history?.incidents || []} busy={actionBusy} onNote={onNoteIncident} canManage={canManage} />
       <AuditLog entries={data.audit || []} />
     </div>
@@ -552,6 +553,18 @@ function App() {
     setAdminActionBusy(`room:${room.id}`); setAdminActionMessage({ text: "", type: "success" });
     try { await api("/api/admin/rooms", { method: "DELETE", body: JSON.stringify({ id: room.id }) }); const text = `A sala “${room.title}” foi removida do TeamSpeak.`; setAdminActionMessage({ text, type: "success" }); showToast(text); await refreshAdmin(false); }
     catch (error) { setAdminActionMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); }
+    finally { setAdminActionBusy(""); }
+  }
+
+  async function importLegacyRooms() {
+    setAdminActionBusy("rooms:import"); setAdminActionMessage({ text: "", type: "success" });
+    try {
+      const result = await api("/api/admin/rooms/import", { method: "POST", body: "{}" });
+      const count = result.imported?.length || 0;
+      const text = count ? `${count} ${count === 1 ? "sala antiga importada" : "salas antigas importadas"} com sucesso.` : "Não foram encontradas novas salas antigas compatíveis.";
+      setAdminActionMessage({ text, type: count ? "success" : "neutral" }); showToast(text, count ? "success" : "neutral");
+      await Promise.all([refreshAdmin(false), refreshAuth()]);
+    } catch (error) { setAdminActionMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); }
     finally { setAdminActionBusy(""); }
   }
 
@@ -651,7 +664,7 @@ function App() {
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
     {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração{Boolean(adminData?.counts?.unreadAlerts) && <span className="nav-alert-count">{adminData.counts.unreadAlerts}</span>}</button></nav>}
     {auth.authenticated && view === "panel" && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} enabled={enabled} confirmAction={confirmAction} /></div></div>}
-    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} diagnostics={diagnostics} onRunDiagnostics={runDiagnostics} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} confirmAction={confirmAction} /></div>}
+    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} diagnostics={diagnostics} onRunDiagnostics={runDiagnostics} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} onImportRooms={importLegacyRooms} confirmAction={confirmAction} /></div>}
     <Footer />
   </main>{auth.authenticated && <nav className="mobile-command-bar" aria-label="Navegação rápida"><button type="button" onClick={() => navigateMobile("panel-top")}><span aria-hidden="true">⌂</span>Painel</button><button type="button" onClick={() => navigateMobile("groups-panel")}><span aria-hidden="true">#</span>Grupos</button><button type="button" onClick={() => navigateMobile(room ? "room-manager" : "room-creator")}><span aria-hidden="true">+</span>Sala</button>{auth.isAdmin && <button type="button" onClick={() => navigateMobile("admin")}><span aria-hidden="true">!</span>Admin{Boolean(adminData?.counts?.unreadAlerts) && <b>{adminData.counts.unreadAlerts}</b>}</button>}</nav>}<ToastRegion toast={toast} onClose={() => setToast(null)} /><ConfirmDialog dialog={confirmDialog} onResolve={resolveConfirm} /></>;
 }

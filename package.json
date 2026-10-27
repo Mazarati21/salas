@@ -9,8 +9,8 @@
     "build": "node tools/build-app.js",
     "start": "node server.js",
     "restore-backup": "node tools/restore-backup.js",
-    "check": "node --check server.js && node --check tools/teamspeak-query.js && node --check tools/data-store.js && node --check tools/diagnostics.js && node --check tools/release-guard.js && node --check tools/restore-backup.js",
-    "test": "node --test tests/admin-utils.test.js tests/data-store.test.js tests/diagnostics.test.js tests/room-activity.test.js tests/server-metrics.test.js tests/teamspeak-query.test.js",
+    "check": "node --check server.js && node --check tools/teamspeak-query.js && node --check tools/data-store.js && node --check tools/diagnostics.js && node --check tools/legacy-rooms.js && node --check tools/release-guard.js && node --check tools/restore-backup.js",
+    "test": "node --test tests/admin-utils.test.js tests/data-store.test.js tests/diagnostics.test.js tests/legacy-rooms.test.js tests/room-activity.test.js tests/server-metrics.test.js tests/teamspeak-query.test.js",
     "release:guard": "node tools/release-guard.js",
     "release:verify": "npm run build && npm run check && npm test && npm run release:guard && npm audit --omit=dev --audit-level=high"
   },

@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-utils");
 const { diagnosticCheck, evaluateTeamSpeakStructure, summarizeDiagnostics } = require("./tools/diagnostics");
 const { DataStore } = require("./tools/data-store");
+const { discoverLegacyRooms } = require("./tools/legacy-rooms");
 const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
@@ -896,6 +897,44 @@ async function deleteRoomAsFounder(payload, session) {
   });
 }
 
+async function importLegacyRoomsAsFounder(session) {
+  return withTeamSpeak(async (ts) => {
+    await requireFounder(ts, session);
+    const channels = parseItems(await ts.command("ler salas antigas", "channellist -flags"));
+    const assignments = parseItems(await ts.command("ler Channel Admins", "channelgroupclientlist -names"));
+    const trackedRooms = store.getRooms().filter((room) => room.active);
+    const discovery = discoverLegacyRooms({
+      channels,
+      assignments,
+      trackedParentCids: trackedRooms.map((room) => room.teamspeak.parentCid),
+      protectedSeparatorCid: protectedThinSeparatorCid,
+      channelAdminGroupId
+    });
+    const activeCreators = new Set(trackedRooms.map((room) => Number(room.creatorDatabaseId)));
+    const imported = [];
+    const skipped = discovery.skipped.slice();
+    for (const candidate of discovery.candidates) {
+      if (activeCreators.has(Number(candidate.ownerDatabaseId))) {
+        skipped.push({ parentCid: candidate.teamspeak.parentCid, reason: "owner-already-has-room" });
+        continue;
+      }
+      const room = store.insertRoom({
+        id: `legacy-${candidate.teamspeak.parentCid}-${crypto.randomBytes(4).toString("hex")}`,
+        active: true,
+        creatorDatabaseId: candidate.ownerDatabaseId,
+        creatorNickname: candidate.ownerNickname,
+        title: candidate.title,
+        autoExpire: false,
+        teamspeak: candidate.teamspeak,
+        channels: candidate.channels
+      });
+      activeCreators.add(Number(candidate.ownerDatabaseId));
+      imported.push(serializeRoom(room));
+    }
+    return { imported, skipped, scanned: discovery.candidates.length + discovery.skipped.length };
+  });
+}
+
 async function revokeSessionsAsFounder(payload, session) {
   const databaseId = Number(payload.databaseId);
   if (!Number.isSafeInteger(databaseId) || databaseId <= 0) throw new HttpError(400, "Utilizador inválido.");
@@ -1365,7 +1404,8 @@ async function handleApi(request, response, pathname) {
       ["/api/admin/incidents/note", ["POST"]], ["/api/admin/maintenance", ["POST"]],
       ["/api/admin/diagnostics", ["POST"]],
       ["/api/admin/backups", ["POST"]], ["/api/admin/backups/download", ["GET"]],
-      ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]]
+      ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]],
+      ["/api/admin/rooms/import", ["POST"]]
     ]);
     const routeMethods = allowedMethods.get(pathname);
     if (routeMethods && !routeMethods.includes(request.method)) {
@@ -1497,6 +1537,13 @@ async function handleApi(request, response, pathname) {
       const body = await readBody(request);
       await auditAction(request, session, "admin.room.delete", body.id, () => deleteRoomAsFounder(body, session));
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === "/api/admin/rooms/import" && request.method === "POST") {
+      const session = requireSession(request, true);
+      const result = await auditAction(request, session, "admin.rooms.import", null, () => importLegacyRoomsAsFounder(session));
+      sendJson(response, 200, { ok: true, ...result });
       return;
     }
 
