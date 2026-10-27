@@ -248,7 +248,22 @@ function RoomCard({ room, isOpen, setOpen, onUpdate, onDelete, busy, enabled, co
   const remainingDays = Math.max(1, Math.ceil(remainingMs / 86_400_000));
   const expiryProgress = room.autoExpire ? Math.max(0, Math.min(100, remainingMs / (Number(room.inactivityDays || 30) * 86_400_000) * 100)) : 100;
   const expiryTone = remainingDays <= 3 ? "is-danger" : remainingDays <= 7 ? "is-warning" : "is-safe";
-  return <article className={`room-card ${isOpen ? "is-open" : ""}`}><div className="thick-line" /><button className="room-main" type="button" onClick={setOpen} aria-expanded={isOpen}><span>{room.title}</span><small>Admin: {room.creator?.nickname || "utilizador"} · {room.channels.length} {room.channels.length === 1 ? "subsala" : "subsalas"}</small></button>{room.autoExpire && <div className={`room-expiry ${expiryTone}`}><div><span>Prazo de atividade</span><strong>{remainingDays} {remainingDays === 1 ? "dia restante" : "dias restantes"}</strong></div><small>Renova ao entrares numa subsala · expira {formatDate(room.expiresAt)}</small><div className="room-expiry-track" aria-hidden="true"><i style={{ width: `${expiryProgress}%` }} /></div></div>}<ul className="channel-list">{room.channels.map((channel, index) => <li key={channel.cid || index}><span className="check">✓</span><span>● {channel.name}</span>{channel.passwordProtected && <span className="lock">Protegida</span>}</li>)}</ul>{isOpen && <form className="admin-panel" onSubmit={submit}><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required disabled={!enabled} /></label><div className="channel-builder-head wide"><div><strong>Subsalas</strong><span>{channels.length} de 4</span></div><button className="add-channel-button" type="button" onClick={addChannel} disabled={!enabled || busy || channels.length >= 4}>+ Adicionar subsala</button></div>{channels.map((channel, index) => <div className="password-editor" key={channel.cid || `new-${index}`}><div className="channel-config-head"><strong>Subsala {index + 1}</strong><button className="remove-channel-button" type="button" onClick={() => removeChannel(index)} disabled={!enabled || busy || channels.length <= 1} aria-label={`Remover subsala ${index + 1}`} title="Remover subsala">×</button></div><label className="field"><span>Nome</span><input value={channel.name} onChange={(event) => updateChannel(index, { name: event.target.value })} maxLength="28" placeholder={channelNames[index]} required disabled={!enabled} /></label><label className="field"><span>Palavra-passe</span><select value={channel.passwordAction} onChange={(event) => updateChannel(index, { passwordAction: event.target.value, password: "" })} disabled={!enabled}><option value="keep">{channel.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{channel.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{channel.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{channel.passwordAction === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={channel.password} onChange={(event) => updateChannel(index, { password: event.target.value })} maxLength="24" required placeholder="Até 24 caracteres" disabled={!enabled} /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={!enabled || busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={!enabled || busy} onClick={async () => await confirmAction({ title: "Apagar sala permanente", message: `A sala e ${room.channels.length === 1 ? "a subsala" : "todas as subsalas"} serão removidas do TeamSpeak.`, confirmLabel: "Apagar sala", danger: true }) && onDelete(room)}>Apagar sala</button></div></form>}</article>;
+  const protectedCount = room.channels.filter((channel) => channel.passwordProtected).length;
+  return <article className={`room-card owner-room-card ${isOpen ? "is-open" : ""}`}>
+    <div className="thick-line" />
+    <div className="owner-room-command">
+      <div><p className="eyebrow">Propriedade confirmada</p><h3>{room.title}</h3><span>Channel Admin atribuído a {room.creator?.nickname || "utilizador"}</span></div>
+      <div className="owner-room-actions"><span className={`owner-state ${enabled ? "is-online" : "is-offline"}`}><i aria-hidden="true" />{enabled ? "Pronta a gerir" : "TeamSpeak desligado"}</span><button className="secondary-button" type="button" onClick={setOpen} aria-expanded={isOpen}>{isOpen ? "Fechar gestão" : "Gerir sala"}</button></div>
+    </div>
+    <div className="owner-room-metrics" aria-label="Resumo da sala">
+      <div><span>Estrutura</span><strong>{room.channels.length}/4</strong><small>{room.channels.length === 1 ? "subsala ativa" : "subsalas ativas"}</small></div>
+      <div><span>Proteção</span><strong>{protectedCount}</strong><small>{protectedCount === 1 ? "subsala com passe" : "subsalas com passe"}</small></div>
+      <div><span>Retenção</span><strong>{room.autoExpire ? `${remainingDays} d` : "Permanente"}</strong><small>{room.autoExpire ? "atividade renova o prazo" : "sala antiga sem expiração"}</small></div>
+    </div>
+    {room.autoExpire ? <div className={`room-expiry ${expiryTone}`}><div><span>Prazo de atividade</span><strong>{remainingDays} {remainingDays === 1 ? "dia restante" : "dias restantes"}</strong></div><small>Renova ao entrares numa subsala · expira {formatDate(room.expiresAt)}</small><div className="room-expiry-track" aria-hidden="true"><i style={{ width: `${expiryProgress}%` }} /></div></div> : <div className="legacy-room-note"><span aria-hidden="true">◇</span><div><strong>Sala histórica protegida</strong><small>Importada do painel anterior e excluída da eliminação automática.</small></div></div>}
+    <div className="owner-channel-grid">{room.channels.map((channel, index) => <article key={channel.cid || index}><span className="owner-channel-index">0{index + 1}</span><div><strong>{channel.name}</strong><small>{channel.passwordProtected ? "Acesso protegido" : "Acesso livre"}</small></div><span className={`owner-channel-security ${channel.passwordProtected ? "is-locked" : ""}`} aria-label={channel.passwordProtected ? "Protegida por palavra-passe" : "Sem palavra-passe"}>{channel.passwordProtected ? "●" : "○"}</span></article>)}</div>
+    {isOpen && <form className="admin-panel owner-editor" onSubmit={submit}><div className="owner-editor-intro wide"><div><p className="eyebrow">Editor da estrutura</p><strong>Alterações aplicadas diretamente no TeamSpeak</strong></div><span>{channels.length} de 4 subsalas</span></div><label className="field wide"><span>Nome central / título</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="27" required disabled={!enabled} /></label><div className="channel-builder-head wide"><div><strong>Subsalas</strong><span>{channels.length} de 4</span></div><button className="add-channel-button" type="button" onClick={addChannel} disabled={!enabled || busy || channels.length >= 4}>+ Adicionar subsala</button></div>{channels.map((channel, index) => <div className="password-editor" key={channel.cid || `new-${index}`}><div className="channel-config-head"><strong>Subsala {index + 1}</strong><button className="remove-channel-button" type="button" onClick={() => removeChannel(index)} disabled={!enabled || busy || channels.length <= 1} aria-label={`Remover subsala ${index + 1}`} title="Remover subsala">×</button></div><label className="field"><span>Nome</span><input value={channel.name} onChange={(event) => updateChannel(index, { name: event.target.value })} maxLength="28" placeholder={channelNames[index]} required disabled={!enabled} /></label><label className="field"><span>Palavra-passe</span><select value={channel.passwordAction} onChange={(event) => updateChannel(index, { passwordAction: event.target.value, password: "" })} disabled={!enabled}><option value="keep">{channel.passwordProtected ? "Manter palavra-passe" : "Continuar sem palavra-passe"}</option><option value="change">{channel.passwordProtected ? "Definir nova palavra-passe" : "Adicionar palavra-passe"}</option>{channel.passwordProtected && <option value="remove">Remover palavra-passe</option>}</select></label>{channel.passwordAction === "change" && <label className="field"><span>Nova palavra-passe</span><input type="password" autoComplete="new-password" value={channel.password} onChange={(event) => updateChannel(index, { password: event.target.value })} maxLength="24" required placeholder="Até 24 caracteres" disabled={!enabled} /></label>}</div>)}<div className="admin-actions"><button className="primary-button" disabled={!enabled || busy}>{busy ? "A guardar..." : "Guardar alterações"}</button><button className="danger-button" type="button" disabled={!enabled || busy} onClick={async () => await confirmAction({ title: "Apagar sala permanente", message: `A sala e ${room.channels.length === 1 ? "a subsala" : "todas as subsalas"} serão removidas do TeamSpeak.`, confirmLabel: "Apagar sala", danger: true }) && onDelete(room)}>Apagar sala</button></div></form>}
+  </article>;
 }
 
 const auditLabels = {
@@ -261,6 +276,7 @@ const auditLabels = {
   "room.delete": "Sala apagada",
   "admin.session.revoke": "Sessão terminada pelo Fundador",
   "admin.room.delete": "Sala removida pelo Fundador",
+  "admin.room.recover": "Propriedade da sala recuperada",
   "admin.rooms.import": "Salas antigas importadas",
   "admin.maintenance.update": "Manutenção alterada",
   "admin.backup.create": "Backup manual criado",
@@ -404,6 +420,41 @@ function RoomOperations({ rooms = [], canManage, busy, onDeleteRoom, onImportRoo
   </section>;
 }
 
+function RoomRecoveryCenter({ rooms = [], busy, onRecoverRoom, confirmAction }) {
+  const [roomId, setRoomId] = useState(rooms[0]?.id || "");
+  const [targetDatabaseId, setTargetDatabaseId] = useState("");
+  useEffect(() => {
+    if (!rooms.some((room) => room.id === roomId)) setRoomId(rooms[0]?.id || "");
+  }, [rooms, roomId]);
+  const selectedRoom = rooms.find((room) => room.id === roomId);
+  async function submit(event) {
+    event.preventDefault();
+    const databaseId = Number(targetDatabaseId);
+    if (!selectedRoom || !Number.isSafeInteger(databaseId) || databaseId <= 0) return;
+    const approved = await confirmAction({
+      title: "Transferir propriedade da sala",
+      message: `“${selectedRoom.title}” deixa de pertencer a ${selectedRoom.creator?.nickname || "utilizador"} e passa para a identidade DB #${databaseId}. O Channel Admin será atualizado em toda a estrutura.`,
+      confirmLabel: "Transferir propriedade",
+      danger: true
+    });
+    if (!approved) return;
+    if (await onRecoverRoom({ roomId: selectedRoom.id, targetDatabaseId: databaseId })) setTargetDatabaseId("");
+  }
+  return <section className="panel admin-section recovery-section">
+    <div className="admin-section-head"><div><p className="eyebrow">Recuperação controlada</p><h3>Centro de recuperação de salas</h3></div><span className="status-chip is-success">Fundador</span></div>
+    <div className="recovery-layout">
+      <div className="recovery-explainer"><span className="recovery-symbol" aria-hidden="true">↔</span><div><strong>Transferência segura de propriedade</strong><p>Valida a identidade na base de dados do TeamSpeak, transfere Channel Admin em todas as subsalas e regista a operação na auditoria.</p></div></div>
+      <form className="recovery-form" onSubmit={submit}>
+        <label className="field"><span>Sala permanente</span><select value={roomId} onChange={(event) => setRoomId(event.target.value)} required disabled={Boolean(busy) || !rooms.length}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.title} — {room.creator?.nickname || "Sem proprietário"}</option>)}</select></label>
+        <label className="field"><span>Novo ID da base de dados TeamSpeak</span><input type="number" inputMode="numeric" min="1" step="1" value={targetDatabaseId} onChange={(event) => setTargetDatabaseId(event.target.value.replace(/\D/g, ""))} placeholder="Ex.: 2655" required disabled={Boolean(busy)} /></label>
+        <div className="recovery-current"><span>Proprietário atual</span><strong>{selectedRoom?.creator?.nickname || "Indisponível"}</strong><small>{selectedRoom ? `DB #${selectedRoom.creator?.databaseId}` : "Seleciona uma sala"}</small></div>
+        <button className="primary-button" type="submit" disabled={Boolean(busy) || !selectedRoom || !targetDatabaseId}>{busy === `recover:${roomId}` ? "A transferir..." : "Validar e transferir"}</button>
+      </form>
+      <div className="recovery-safeguards"><span><b>01</b> Identidade confirmada no TeamSpeak</span><span><b>02</b> Uma sala ativa por utilizador</span><span><b>03</b> Reversão automática se ocorrer uma falha</span></div>
+    </div>
+  </section>;
+}
+
 function AdminAlerts({ alerts = [], onRead, onNote, busy }) {
   const [filter, setFilter] = useState("new");
   const [editing, setEditing] = useState(null);
@@ -419,7 +470,7 @@ function AdminAlerts({ alerts = [], onRead, onNote, busy }) {
   </section>;
 }
 
-function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, onImportRooms, confirmAction }) {
+function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRefresh, actionBusy, actionMessage, onReadAlert, onNoteAlert, onNoteIncident, onMaintenance, onCreateBackup, onRevokeSession, onDeleteRoom, onImportRooms, onRecoverRoom, confirmAction }) {
   if (!data && busy) return <AdminSkeleton />;
   if (!data) return <section className="panel admin-unavailable"><p className="eyebrow">Administração</p><h2>Não foi possível abrir a supervisão</h2><p>{error || "Volta a tentar dentro de alguns instantes."}</p><button className="primary-button" type="button" onClick={() => onRefresh(true)}>Tentar novamente</button></section>;
 
@@ -465,6 +516,7 @@ function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRe
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Utilizador</th><th>Rede</th><th>Última atividade</th><th>Expira</th>{canManage && <th>Ação</th>}</tr></thead><tbody>{(data.sessions || []).map((session) => { const ownSession = Number(session.databaseId) === Number(data.administrator?.databaseId); return <tr key={`${session.databaseId}-${session.createdAt}`}><td><strong>{session.nickname}</strong><small>DB #{session.databaseId}</small></td><td>{session.ip}</td><td>{formatDate(session.lastSeenAt)}</td><td>{formatDate(session.expiresAt)}</td>{canManage && <td><button className="table-action" type="button" disabled={ownSession || Boolean(actionBusy)} title={ownSession ? "A tua sessão está protegida" : "Terminar todas as sessões deste utilizador"} onClick={async () => await confirmAction({ title: "Terminar sessões", message: `Todas as sessões web de ${session.nickname} serão revogadas.`, confirmLabel: "Terminar sessões", danger: true }) && onRevokeSession(session)}>{actionBusy === `session:${session.databaseId}` ? "A terminar..." : ownSession ? "Sessão atual" : "Terminar"}</button></td>}</tr>; })}{!data.sessions?.length && <tr><td colSpan={canManage ? 5 : 4} className="empty-table">Não existem sessões ativas.</td></tr>}</tbody></table></div>
       </section>
       <RoomOperations rooms={data.rooms || []} canManage={canManage} busy={actionBusy} onDeleteRoom={onDeleteRoom} onImportRooms={onImportRooms} confirmAction={confirmAction} />
+      {canManage && <RoomRecoveryCenter rooms={data.rooms || []} busy={actionBusy} onRecoverRoom={onRecoverRoom} confirmAction={confirmAction} />}
       <IncidentTimeline incidents={data.history?.incidents || []} busy={actionBusy} onNote={onNoteIncident} canManage={canManage} />
       <AuditLog entries={data.audit || []} />
     </div>
@@ -568,6 +620,20 @@ function App() {
     finally { setAdminActionBusy(""); }
   }
 
+  async function recoverAdminRoom(payload) {
+    setAdminActionBusy(`recover:${payload.roomId}`); setAdminActionMessage({ text: "", type: "success" });
+    try {
+      const result = await api("/api/admin/rooms/recover", { method: "POST", body: JSON.stringify(payload) });
+      const text = `A sala “${result.room.title}” pertence agora a ${result.room.creator.nickname} (DB #${result.room.creator.databaseId}).`;
+      setAdminActionMessage({ text, type: "success" }); showToast("Propriedade e Channel Admin transferidos.");
+      await Promise.all([refreshAdmin(false), refreshAuth()]);
+      return true;
+    } catch (error) {
+      setAdminActionMessage({ text: error.message, type: "error" }); showToast(error.message, "error");
+      return false;
+    } finally { setAdminActionBusy(""); }
+  }
+
   async function markAdminAlertRead(alertId) {
     const busyKey = alertId == null ? "alerts:all" : `alert:${alertId}`;
     setAdminActionBusy(busyKey); setAdminActionMessage({ text: "", type: "success" });
@@ -664,7 +730,7 @@ function App() {
     {auth.loading && <section className="panel loading-panel"><span className="loader" /><strong>A preparar o painel...</strong></section>}
     {auth.authenticated && auth.isAdmin && <nav className="view-switcher" aria-label="Área do painel"><button type="button" className={view === "panel" ? "is-active" : ""} aria-current={view === "panel" ? "page" : undefined} onClick={() => setView("panel")}>O meu painel</button><button type="button" className={view === "admin" ? "is-active" : ""} aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>Administração{Boolean(adminData?.counts?.unreadAlerts) && <span className="nav-alert-count">{adminData.counts.unreadAlerts}</span>}</button></nav>}
     {auth.authenticated && view === "panel" && <div className="dashboard"><ProfilePanel auth={auth} room={room} sections={sections} selections={selections} /><GroupsPanel sections={sections} selections={selections} setSelections={setSelections} savedSelections={savedSelections} onApply={applyGroups} busy={groupsBusy} message={groupMessage} enabled={enabled} /><div className="side-stack"><CreatorPanel enabled={enabled} hasActiveRoom={Boolean(room)} onCreate={createRoom} message={roomMessage} busy={roomBusy} /><RoomTree room={room} open={roomOpen} setOpen={setRoomOpen} onUpdate={updateRoom} onDelete={deleteRoom} busy={roomBusy} enabled={enabled} confirmAction={confirmAction} /></div></div>}
-    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} diagnostics={diagnostics} onRunDiagnostics={runDiagnostics} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} onImportRooms={importLegacyRooms} confirmAction={confirmAction} /></div>}
+    {auth.authenticated && auth.isAdmin && view === "admin" && <div id="admin-area"><AdminDashboard data={adminData} busy={adminBusy} error={adminError} diagnostics={diagnostics} onRunDiagnostics={runDiagnostics} onRefresh={refreshAdmin} actionBusy={adminActionBusy} actionMessage={adminActionMessage} onReadAlert={markAdminAlertRead} onNoteAlert={saveAdminAlertNote} onNoteIncident={saveIncidentNote} onMaintenance={updateMaintenance} onCreateBackup={createManualBackup} onRevokeSession={revokeAdminSession} onDeleteRoom={deleteAdminRoom} onImportRooms={importLegacyRooms} onRecoverRoom={recoverAdminRoom} confirmAction={confirmAction} /></div>}
     <Footer />
   </main>{auth.authenticated && <nav className="mobile-command-bar" aria-label="Navegação rápida"><button type="button" onClick={() => navigateMobile("panel-top")}><span aria-hidden="true">⌂</span>Painel</button><button type="button" onClick={() => navigateMobile("groups-panel")}><span aria-hidden="true">#</span>Grupos</button><button type="button" onClick={() => navigateMobile(room ? "room-manager" : "room-creator")}><span aria-hidden="true">+</span>Sala</button>{auth.isAdmin && <button type="button" onClick={() => navigateMobile("admin")}><span aria-hidden="true">!</span>Admin{Boolean(adminData?.counts?.unreadAlerts) && <b>{adminData.counts.unreadAlerts}</b>}</button>}</nav>}<ToastRegion toast={toast} onClose={() => setToast(null)} /><ConfirmDialog dialog={confirmDialog} onResolve={resolveConfirm} /></>;
 }

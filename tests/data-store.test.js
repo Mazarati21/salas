@@ -65,6 +65,19 @@ test("replaces a room channel list when its size changes", () => withStore((stor
   assert.deepEqual(expanded.channels.map((channel) => channel.cid), [102, 103, 201, 202]);
 }));
 
+test("transfers room ownership without weakening the one-room limit", () => withStore((store) => {
+  const room = store.insertRoom(sampleRoom());
+  const transferred = store.transferRoomOwner(room.id, 77, "Novo Dono");
+  assert.equal(transferred.creatorDatabaseId, 77);
+  assert.equal(transferred.creatorNickname, "Novo Dono");
+  assert.equal(store.getActiveRoomByCreator(42), null);
+  assert.equal(store.getActiveRoomByCreator(77).id, room.id);
+
+  store.insertRoom(sampleRoom({ id: "room-2", creatorDatabaseId: 88 }));
+  assert.throws(() => store.transferRoomOwner(room.id, 88, "Já tem sala"), /UNIQUE constraint failed/);
+  assert.equal(store.getActiveRoomById(room.id).creatorDatabaseId, 77);
+}));
+
 test("only tracks inactivity for newly opted-in rooms", () => withStore((store) => {
   const legacy = store.insertRoom(sampleRoom());
   assert.equal(legacy.autoExpire, false);

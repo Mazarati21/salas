@@ -935,6 +935,70 @@ async function importLegacyRoomsAsFounder(session) {
   });
 }
 
+async function recoverRoomAsFounder(payload, session) {
+  const roomId = String(payload.roomId || "").trim();
+  const targetDatabaseId = Number(payload.targetDatabaseId);
+  if (!roomId) throw new HttpError(400, "Seleciona a sala que queres recuperar.");
+  if (!Number.isSafeInteger(targetDatabaseId) || targetDatabaseId <= 0) {
+    throw new HttpError(400, "Indica um ID de base de dados TeamSpeak válido.");
+  }
+
+  return withTeamSpeak(async (ts) => {
+    await requireFounder(ts, session);
+    const room = store.getActiveRoomById(roomId);
+    if (!room) throw new HttpError(404, "Sala ativa não encontrada.");
+    if (Number(room.creatorDatabaseId) === targetDatabaseId) {
+      throw new HttpError(409, "Essa identidade já é proprietária da sala.");
+    }
+    const existingRoom = store.getActiveRoomByCreator(targetDatabaseId);
+    if (existingRoom && existingRoom.id !== room.id) {
+      throw new HttpError(409, "A identidade de destino já tem uma sala permanente ativa.");
+    }
+
+    let identity;
+    try {
+      identity = parseItems(await ts.command("validar novo proprietário", `clientdbinfo cldbid=${targetDatabaseId}`))[0];
+    } catch (error) {
+      if (/error id=(?:512|1281)\b/.test(String(error.message))) {
+        throw new HttpError(404, "A identidade TeamSpeak indicada não foi encontrada.");
+      }
+      throw error;
+    }
+    const nickname = String(identity?.client_nickname || "").trim();
+    if (!identity || !nickname) throw new HttpError(404, "A identidade TeamSpeak indicada não foi encontrada.");
+
+    const managementCids = [room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)].map(Number);
+    const existingCids = new Set((await getChannels(ts)).map((channel) => Number(channel.cid)));
+    if (managementCids.some((cid) => !existingCids.has(cid))) {
+      throw new HttpError(409, "A sala está dessincronizada. Corrige a estrutura antes de transferir a propriedade.");
+    }
+
+    const granted = [];
+    const removed = [];
+    try {
+      for (const cid of managementCids) {
+        await ts.command("atribuir novo Channel Admin", `setclientchannelgroup cgid=${channelAdminGroupId} cid=${cid} cldbid=${targetDatabaseId}`);
+        granted.push(cid);
+      }
+      for (const cid of managementCids) {
+        await ts.command("remover Channel Admin anterior", `setclientchannelgroup cgid=0 cid=${cid} cldbid=${Number(room.creatorDatabaseId)}`);
+        removed.push(cid);
+      }
+      const recovered = store.transferRoomOwner(room.id, targetDatabaseId, nickname);
+      if (!recovered) throw new Error("A sala deixou de estar ativa durante a recuperação.");
+      return { room: serializeRoom(recovered), previousOwner: room.creatorNickname };
+    } catch (error) {
+      for (const cid of removed) {
+        await ts.command("repor Channel Admin anterior", `setclientchannelgroup cgid=${channelAdminGroupId} cid=${cid} cldbid=${Number(room.creatorDatabaseId)}`).catch(() => {});
+      }
+      for (const cid of granted) {
+        await ts.command("reverter novo Channel Admin", `setclientchannelgroup cgid=0 cid=${cid} cldbid=${targetDatabaseId}`).catch(() => {});
+      }
+      throw error;
+    }
+  });
+}
+
 async function revokeSessionsAsFounder(payload, session) {
   const databaseId = Number(payload.databaseId);
   if (!Number.isSafeInteger(databaseId) || databaseId <= 0) throw new HttpError(400, "Utilizador inválido.");
@@ -1405,7 +1469,7 @@ async function handleApi(request, response, pathname) {
       ["/api/admin/diagnostics", ["POST"]],
       ["/api/admin/backups", ["POST"]], ["/api/admin/backups/download", ["GET"]],
       ["/api/admin/sessions/revoke", ["POST"]], ["/api/admin/rooms", ["DELETE"]],
-      ["/api/admin/rooms/import", ["POST"]]
+      ["/api/admin/rooms/import", ["POST"]], ["/api/admin/rooms/recover", ["POST"]]
     ]);
     const routeMethods = allowedMethods.get(pathname);
     if (routeMethods && !routeMethods.includes(request.method)) {
@@ -1543,6 +1607,15 @@ async function handleApi(request, response, pathname) {
     if (pathname === "/api/admin/rooms/import" && request.method === "POST") {
       const session = requireSession(request, true);
       const result = await auditAction(request, session, "admin.rooms.import", null, () => importLegacyRoomsAsFounder(session));
+      sendJson(response, 200, { ok: true, ...result });
+      return;
+    }
+
+    if (pathname === "/api/admin/rooms/recover" && request.method === "POST") {
+      const session = requireSession(request, true);
+      enforceRateLimit(`room-recovery:${session.database_id}`, 10, 60 * 60 * 1000);
+      const body = await readBody(request);
+      const result = await auditAction(request, session, "admin.room.recover", body.roomId, () => recoverRoomAsFounder(body, session));
       sendJson(response, 200, { ok: true, ...result });
       return;
     }

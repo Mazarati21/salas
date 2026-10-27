@@ -37,6 +37,7 @@ add("Versões do painel", Boolean(appVersion && styleVersion), appVersion && sty
 const serverSource = read("server.js");
 const appSource = read("app.jsx");
 add("Contrato do diagnóstico", serverSource.includes('["/api/admin/diagnostics", ["POST"]]') && serverSource.includes("requireFounder(ts, session)") && appSource.includes('api("/api/admin/diagnostics", { method: "POST"'), "Endpoint POST, validação Fundador e cliente React presentes");
+add("Recuperação de salas protegida", serverSource.includes('["/api/admin/rooms/recover", ["POST"]]') && serverSource.includes('"admin.room.recover"') && appSource.includes('api("/api/admin/rooms/recover", { method: "POST"'), "Transferência auditada e exclusiva do Fundador presente");
 const visualAssets = ["background-light-v3.png", "background-dark-v3.png", "manrope-latin.woff2", "sora-latin.woff2"];
 const missingStaticAssets = visualAssets.filter((asset) => !serverSource.includes(asset));
 add("Assets visuais servidos", missingStaticAssets.length === 0 && serverSource.includes('".woff2": "font/woff2"'), missingStaticAssets.length ? `Em falta no servidor: ${missingStaticAssets.join(", ")}` : "Fundos e fontes permitidos pelo servidor");

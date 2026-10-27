@@ -16,6 +16,8 @@ Website LegendZ e painel web para autenticar utilizadores através do TeamSpeak,
 - SQLite persistente para salas, sessões, desafios, limites e auditoria.
 - Área administrativa de leitura para Server Admins, com saúde do serviço, sessões anonimizadas, sincronização de salas e auditoria recente.
 - Centro operacional com cronologia pública de incidentes, notas internas da staff, filtros de salas e gráfico das últimas 24 horas.
+- Centro de recuperação exclusivo do Fundador para transferir uma sala e o respetivo Channel Admin para outra identidade TeamSpeak, com validação, auditoria e reversão em caso de falha.
+- Área do proprietário com resumo visual da estrutura, proteção das subsalas, retenção e editor integrado.
 - Modo de manutenção controlado pelo Fundador, comunicado também na página pública de Estado.
 - Backups automáticos e manuais com verificação de integridade e descarga reservada ao Fundador.
 - Modelos de sala, notificações discretas, confirmações próprias e navegação móvel fixa.
@@ -113,7 +115,7 @@ O ambiente de produção verifica a branch `main` a cada cinco minutos e chama a
 
 A vista **Administração** só aparece quando o utilizador autenticado está ligado ao TeamSpeak e pertence a um dos grupos definidos em `TS_ADMIN_GROUP_IDS`. A API volta a confirmar o grupo no TeamSpeak em cada acesso, pelo que esconder o botão no browser não é a barreira de segurança.
 
-Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura, podem registar notas operacionais internas e recebem alertas privados quando estão ligados ao TeamSpeak. A caixa de notificações mantém o estado lido/não lido separado por conta. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem publicar notas de incidente, terminar sessões web de terceiros, remover salas permanentes, controlar a manutenção e gerir backups; cada ação destrutiva volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
+Os grupos de staff definidos em `TS_ADMIN_GROUP_IDS` têm acesso de leitura, podem registar notas operacionais internas e recebem alertas privados quando estão ligados ao TeamSpeak. A caixa de notificações mantém o estado lido/não lido separado por conta. Apenas os grupos em `TS_FOUNDER_GROUP_IDS` podem publicar notas de incidente, terminar sessões web de terceiros, remover ou recuperar salas permanentes, controlar a manutenção e gerir backups; cada ação destrutiva volta a validar o grupo no TeamSpeak, exige CSRF e fica registada na auditoria. A recuperação valida o novo ID na base de dados do TeamSpeak, impede duas salas ativas para a mesma identidade e reverte as permissões se a operação falhar. A área não devolve hashes de sessão, UID do TeamSpeak, user-agent ou endereços IP completos.
 
 O diagnóstico é também exclusivo do Fundador, tem limite de utilização, exige CSRF e volta a confirmar o grupo diretamente no TeamSpeak. Usa apenas comandos de leitura e nunca cria canais, altera grupos ou testa passwords.
 

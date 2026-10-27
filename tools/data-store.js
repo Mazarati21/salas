@@ -392,6 +392,22 @@ class DataStore {
     return this.getActiveRoomById(roomId);
   }
 
+  transferRoomOwner(id, creatorDatabaseId, creatorNickname) {
+    const roomId = String(id);
+    const databaseId = Number(creatorDatabaseId);
+    const nickname = String(creatorNickname || "").trim();
+    if (!Number.isSafeInteger(databaseId) || databaseId <= 0 || !nickname) {
+      throw new Error("Invalid room owner.");
+    }
+    if (!this.getActiveRoomById(roomId)) return null;
+    this.db.prepare(`
+      UPDATE rooms
+      SET creator_database_id = ?, creator_nickname = ?, updated_at = ?
+      WHERE id = ? AND active = 1
+    `).run(databaseId, nickname.slice(0, 80), Date.now(), roomId);
+    return this.getActiveRoomById(roomId);
+  }
+
   markRoomInactive(id) {
     this.db.prepare("UPDATE rooms SET active = 0, updated_at = ? WHERE id = ?").run(Date.now(), String(id));
   }
