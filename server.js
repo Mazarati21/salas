@@ -59,6 +59,8 @@ const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
 let banCache = { expiresAt: 0, bans: [] };
 let statusCache = { expiresAt: 0, metrics: null };
+let ownerNicknameRefreshAfter = 0;
+const ownerNicknameRefreshIntervalMs = 6 * 60 * 60 * 1000;
 
 const groupCategories = [
   { key: "jogos", title: "Jogos", limit: 4, sgids: [241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 312, 325, 327, 328, 329, 337, 1265, 172870, 174334] },
@@ -897,6 +899,52 @@ async function deleteRoomAsFounder(payload, session) {
   });
 }
 
+function isPlaceholderOwnerNickname(value) {
+  const nickname = String(value || "").trim();
+  return !nickname || /^(?:utilizador|sem propriet[aá]rio)$/i.test(nickname);
+}
+
+async function getClientDatabaseIdentity(ts, databaseId) {
+  const id = Number(databaseId);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  try {
+    const identity = parseItems(await ts.command("resolver proprietário da sala", `clientdbinfo cldbid=${id}`))[0];
+    const nickname = String(identity?.client_nickname || "").trim().slice(0, 80);
+    return nickname ? { databaseId: id, nickname } : null;
+  } catch (error) {
+    if (/error id=(?:512|1281)\b/.test(String(error.message))) return null;
+    throw error;
+  }
+}
+
+async function refreshImportedOwnerNicknames(ts, rooms, force = false) {
+  const now = Date.now();
+  if (!force && now < ownerNicknameRefreshAfter) return 0;
+  ownerNicknameRefreshAfter = now + ownerNicknameRefreshIntervalMs;
+
+  const unresolved = rooms
+    .filter((room) => room.active && isPlaceholderOwnerNickname(room.creatorNickname))
+    .slice(0, 50);
+  const identities = new Map();
+  let refreshed = 0;
+
+  for (const room of unresolved) {
+    const databaseId = Number(room.creatorDatabaseId);
+    let identity = identities.get(databaseId);
+    if (identity === undefined) {
+      try {
+        identity = await getClientDatabaseIdentity(ts, databaseId);
+      } catch (error) {
+        console.warn(`Falha ao resolver o proprietário TeamSpeak DB #${databaseId}: ${error.message}`);
+        identity = null;
+      }
+      identities.set(databaseId, identity);
+    }
+    if (identity?.nickname && store.updateRoomOwnerNickname(room.id, identity.nickname)) refreshed += 1;
+  }
+  return refreshed;
+}
+
 async function importLegacyRoomsAsFounder(session) {
   return withTeamSpeak(async (ts) => {
     await requireFounder(ts, session);
@@ -918,11 +966,16 @@ async function importLegacyRoomsAsFounder(session) {
         skipped.push({ parentCid: candidate.teamspeak.parentCid, reason: "owner-already-has-room" });
         continue;
       }
+      let ownerNickname = candidate.ownerNickname;
+      if (isPlaceholderOwnerNickname(ownerNickname)) {
+        const identity = await getClientDatabaseIdentity(ts, candidate.ownerDatabaseId);
+        ownerNickname = identity?.nickname || ownerNickname;
+      }
       const room = store.insertRoom({
         id: `legacy-${candidate.teamspeak.parentCid}-${crypto.randomBytes(4).toString("hex")}`,
         active: true,
         creatorDatabaseId: candidate.ownerDatabaseId,
-        creatorNickname: candidate.ownerNickname,
+        creatorNickname: ownerNickname,
         title: candidate.title,
         autoExpire: false,
         teamspeak: candidate.teamspeak,
@@ -955,17 +1008,9 @@ async function recoverRoomAsFounder(payload, session) {
       throw new HttpError(409, "A identidade de destino já tem uma sala permanente ativa.");
     }
 
-    let identity;
-    try {
-      identity = parseItems(await ts.command("validar novo proprietário", `clientdbinfo cldbid=${targetDatabaseId}`))[0];
-    } catch (error) {
-      if (/error id=(?:512|1281)\b/.test(String(error.message))) {
-        throw new HttpError(404, "A identidade TeamSpeak indicada não foi encontrada.");
-      }
-      throw error;
-    }
-    const nickname = String(identity?.client_nickname || "").trim();
-    if (!identity || !nickname) throw new HttpError(404, "A identidade TeamSpeak indicada não foi encontrada.");
+    const identity = await getClientDatabaseIdentity(ts, targetDatabaseId);
+    if (!identity) throw new HttpError(404, "A identidade TeamSpeak indicada não foi encontrada.");
+    const nickname = identity.nickname;
 
     const managementCids = [room.teamspeak.parentCid, ...room.channels.map((channel) => channel.cid)].map(Number);
     const existingCids = new Set((await getChannels(ts)).map((channel) => Number(channel.cid)));
@@ -1285,6 +1330,7 @@ async function getAdminOverview(request) {
   const session = requireSession(request);
   const teamSpeakState = await withTeamSpeak(async (ts) => {
     const access = await requireAdmin(ts, session);
+    await refreshImportedOwnerNicknames(ts, store.getRooms());
     const startedAt = Date.now();
     const info = await ts.command("estado administrativo do servidor", "serverinfo");
     const channels = await ts.command("canais administrativos", "channellist");

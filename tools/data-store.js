@@ -408,6 +408,17 @@ class DataStore {
     return this.getActiveRoomById(roomId);
   }
 
+  updateRoomOwnerNickname(id, creatorNickname) {
+    const roomId = String(id);
+    const nickname = String(creatorNickname || "").trim().slice(0, 80);
+    if (!nickname || !this.getActiveRoomById(roomId)) return null;
+    this.db.prepare(`
+      UPDATE rooms SET creator_nickname = ?, updated_at = ?
+      WHERE id = ? AND active = 1
+    `).run(nickname, Date.now(), roomId);
+    return this.getActiveRoomById(roomId);
+  }
+
   markRoomInactive(id) {
     this.db.prepare("UPDATE rooms SET active = 0, updated_at = ? WHERE id = ?").run(Date.now(), String(id));
   }

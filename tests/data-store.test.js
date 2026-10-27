@@ -78,6 +78,14 @@ test("transfers room ownership without weakening the one-room limit", () => with
   assert.equal(store.getActiveRoomById(room.id).creatorDatabaseId, 77);
 }));
 
+test("repairs an imported owner nickname without changing ownership", () => withStore((store) => {
+  const room = store.insertRoom(sampleRoom());
+  const repaired = store.updateRoomOwnerNickname(room.id, "Nome TeamSpeak");
+  assert.equal(repaired.creatorDatabaseId, 42);
+  assert.equal(repaired.creatorNickname, "Nome TeamSpeak");
+  assert.equal(store.updateRoomOwnerNickname("missing-room", "Nobody"), null);
+}));
+
 test("only tracks inactivity for newly opted-in rooms", () => withStore((store) => {
   const legacy = store.insertRoom(sampleRoom());
   assert.equal(legacy.autoExpire, false);
