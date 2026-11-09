@@ -7,6 +7,7 @@ const { hasAdminGroup, maskIp, sanitizeRateBucket } = require("./tools/admin-uti
 const { diagnosticCheck, evaluateTeamSpeakStructure, summarizeDiagnostics } = require("./tools/diagnostics");
 const { DataStore } = require("./tools/data-store");
 const { discoverLegacyRooms } = require("./tools/legacy-rooms");
+const { normalizePublicBans } = require("./tools/public-bans");
 const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
@@ -59,6 +60,7 @@ const allowedIconIds = new Set();
 let groupCache = { expiresAt: 0, categories: [] };
 let banCache = { expiresAt: 0, bans: [] };
 let statusCache = { expiresAt: 0, metrics: null };
+const activeMutations = new Set();
 let ownerNicknameRefreshAfter = 0;
 const ownerNicknameRefreshIntervalMs = 6 * 60 * 60 * 1000;
 
@@ -1265,11 +1267,6 @@ async function authenticationStatus(request) {
   };
 }
 
-function cleanPublicText(value, fallback, maxLength = 120) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  return (text || fallback).slice(0, maxLength);
-}
-
 async function getPublicBans() {
   if (banCache.expiresAt > Date.now()) return banCache.bans;
 
@@ -1282,29 +1279,22 @@ async function getPublicBans() {
       throw error;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    return items
-      .map((item) => {
-        const createdAt = Math.max(0, Number(item.created) || 0);
-        const duration = Math.max(0, Number(item.duration) || 0);
-        const expiresAt = duration > 0 ? createdAt + duration : null;
-        return {
-          id: Math.max(0, Number(item.banid) || 0),
-          name: cleanPublicText(item.lastnickname, "Sem nome", 80),
-          staff: cleanPublicText(item.invokername, "Servidor", 80),
-          reason: cleanPublicText(item.reason, "Sem razao indicada", 180),
-          createdAt,
-          duration,
-          expiresAt,
-          permanent: duration === 0
-        };
-      })
-      .filter((item) => item.permanent || item.expiresAt > now)
-      .sort((left, right) => right.createdAt - left.createdAt);
+    return normalizePublicBans(items);
   });
 
   banCache = { expiresAt: Date.now() + 15000, bans };
   return bans;
+}
+
+async function withMutationLock(key, work) {
+  const lockKey = String(key || "global");
+  if (activeMutations.has(lockKey)) throw new HttpError(409, "Já existe uma alteração em curso. Aguarda alguns segundos e tenta novamente.");
+  activeMutations.add(lockKey);
+  try {
+    return await work();
+  } finally {
+    activeMutations.delete(lockKey);
+  }
 }
 
 async function getPublicServerMetrics() {
@@ -1645,14 +1635,14 @@ async function handleApi(request, response, pathname) {
     if (pathname === "/api/admin/rooms" && request.method === "DELETE") {
       const session = requireSession(request, true);
       const body = await readBody(request);
-      await auditAction(request, session, "admin.room.delete", body.id, () => deleteRoomAsFounder(body, session));
+      await auditAction(request, session, "admin.room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoomAsFounder(body, session)));
       sendJson(response, 200, { ok: true });
       return;
     }
 
     if (pathname === "/api/admin/rooms/import" && request.method === "POST") {
       const session = requireSession(request, true);
-      const result = await auditAction(request, session, "admin.rooms.import", null, () => importLegacyRoomsAsFounder(session));
+      const result = await auditAction(request, session, "admin.rooms.import", null, () => withMutationLock("rooms:import", () => importLegacyRoomsAsFounder(session)));
       sendJson(response, 200, { ok: true, ...result });
       return;
     }
@@ -1661,7 +1651,7 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       enforceRateLimit(`room-recovery:${session.database_id}`, 10, 60 * 60 * 1000);
       const body = await readBody(request);
-      const result = await auditAction(request, session, "admin.room.recover", body.roomId, () => recoverRoomAsFounder(body, session));
+      const result = await auditAction(request, session, "admin.room.recover", body.roomId, () => withMutationLock(`room:${body.roomId}`, () => recoverRoomAsFounder(body, session)));
       sendJson(response, 200, { ok: true, ...result });
       return;
     }
@@ -1717,7 +1707,7 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       assertPanelWritable();
       const body = await readBody(request);
-      const payload = await auditAction(request, session, "groups.update", null, () => updateUserGroups(body, session));
+      const payload = await auditAction(request, session, "groups.update", null, () => withMutationLock(`groups:${session.database_id}`, () => updateUserGroups(body, session)));
       sendJson(response, 200, { ok: true, ...payload });
       return;
     }
@@ -1726,7 +1716,7 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       assertPanelWritable();
       const body = await readBody(request);
-      const room = await auditAction(request, session, "room.create", null, () => createRoom(body, session));
+      const room = await auditAction(request, session, "room.create", null, () => withMutationLock(`creator:${session.database_id}`, () => createRoom(body, session)));
       sendJson(response, 201, { ok: true, room });
       return;
     }
@@ -1735,7 +1725,7 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       assertPanelWritable();
       const body = await readBody(request);
-      const room = await auditAction(request, session, "room.update", body.id, () => updateRoom(body, session));
+      const room = await auditAction(request, session, "room.update", body.id, () => withMutationLock(`room:${body.id}`, () => updateRoom(body, session)));
       sendJson(response, 200, { ok: true, room });
       return;
     }
@@ -1744,7 +1734,7 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       assertPanelWritable();
       const body = await readBody(request);
-      await auditAction(request, session, "room.delete", body.id, () => deleteRoom(body, session));
+      await auditAction(request, session, "room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoom(body, session)));
       sendJson(response, 200, { ok: true });
       return;
     }

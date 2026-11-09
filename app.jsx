@@ -132,15 +132,23 @@ function AuthPanel({ auth, onAuthenticated }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "neutral" });
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const candidates = auth.candidates || [];
 
   useEffect(() => { if (candidates.length === 1) setCandidateId(String(candidates[0].databaseId)); }, [auth.candidates]);
+  useEffect(() => {
+    if (!challenge?.expiresAt) { setRemainingSeconds(0); return undefined; }
+    const update = () => setRemainingSeconds(Math.max(0, Math.ceil((challenge.expiresAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [challenge]);
 
   async function requestCode() {
     setBusy(true); setMessage({ text: "A enviar um código privado no TeamSpeak...", type: "neutral" });
     try {
       const payload = await api("/api/auth/challenge", { method: "POST", body: JSON.stringify({ databaseId: Number(candidateId) || undefined }) });
-      setChallenge(payload); setCode(""); setMessage({ text: `Código enviado para ${payload.nickname}.`, type: "success" });
+      setChallenge({ ...payload, expiresAt: Date.now() + Number(payload.expiresIn || 300) * 1000 }); setCode(""); setMessage({ text: `Código enviado para ${payload.nickname}.`, type: "success" });
     } catch (error) { setMessage({ text: error.message, type: "error" }); }
     finally { setBusy(false); }
   }
@@ -162,7 +170,7 @@ function AuthPanel({ auth, onAuthenticated }) {
         {candidates.length === 1 && <div className="identity-box"><span>Utilizador detetado</span><strong>{candidates[0].nickname}</strong></div>}
         {candidates.length === 0 && <div className="identity-box is-warning"><span>Nenhum utilizador detetado</span><strong>Liga-te ao TeamSpeak e atualiza a página.</strong></div>}
         <button className="primary-button" type="button" onClick={requestCode} disabled={busy || !auth.teamSpeakOnline || candidates.length === 0 || (candidates.length > 1 && !candidateId)}>{busy ? "A enviar..." : "Enviar código no TeamSpeak"}</button>
-      </> : <form className="code-form" onSubmit={verifyCode}><label className="field"><span>Código de acesso</span><input className="code-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus /></label><button className="primary-button" disabled={busy || code.length !== 6}>{busy ? "A validar..." : "Entrar no painel"}</button><button className="text-button" type="button" disabled={busy} onClick={() => { setChallenge(null); setCode(""); setMessage({ text: "", type: "neutral" }); }}>Pedir outro código</button></form>}
+      </> : <form className="code-form" onSubmit={verifyCode}><div className={`auth-code-status ${remainingSeconds > 0 ? "is-active" : "is-expired"}`}><span aria-hidden="true">{remainingSeconds > 0 ? "●" : "!"}</span><strong>{remainingSeconds > 0 ? `Código válido por ${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}` : "Este código expirou"}</strong></div><label className="field"><span>Código de acesso</span><input className="code-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus disabled={remainingSeconds === 0} /></label><button className="primary-button" disabled={busy || code.length !== 6 || remainingSeconds === 0}>{busy ? "A validar..." : "Entrar no painel"}</button><button className="text-button" type="button" disabled={busy} onClick={() => { setChallenge(null); setCode(""); setMessage({ text: "", type: "neutral" }); }}>{remainingSeconds > 0 ? "Pedir outro código" : "Enviar novo código"}</button></form>}
       <Message message={message} />
     </div>
   </section>;
@@ -317,7 +325,7 @@ function AuditLog({ entries = [] }) {
   });
   const filters = [{ key: "all", label: "Todos" }, { key: "failures", label: "Falhas" }, { key: "rooms", label: "Salas" }];
 
-  return <section className="panel admin-section audit-section">
+  return <section className="panel admin-section audit-section" id="admin-audit">
     <div className="admin-section-head audit-section-head"><div><p className="eyebrow">Registo recente</p><h3>Auditoria</h3></div><span className="badge">{entries.length} eventos</span></div>
     <div className="audit-toolbar" role="group" aria-label="Filtrar auditoria">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}><span>{item.label}</span><b>{counts[item.key]}</b></button>)}</div>
     <div className="audit-feed" role="list">{filteredEntries.map((entry) => {
@@ -387,7 +395,7 @@ function BackupManager({ backups = [], busy, onCreate }) {
 function DiagnosticsPanel({ diagnostics, busy, onRun }) {
   const overall = diagnostics?.summary?.overall || "idle";
   const overallLabel = overall === "pass" ? "Tudo operacional" : overall === "warn" ? "Requer atenção" : overall === "fail" ? "Falhas detetadas" : "Ainda não executado";
-  return <section className={`panel admin-section diagnostics-section is-${overall}`}>
+  return <section className={`panel admin-section diagnostics-section is-${overall}`} id="admin-diagnostics">
     <div className="admin-section-head"><div><p className="eyebrow">Verificação segura</p><h3>Diagnóstico TeamSpeak</h3></div><button className="compact-action" type="button" disabled={Boolean(busy)} onClick={onRun}>{busy === "diagnostics" ? "A verificar..." : diagnostics ? "Executar novamente" : "Executar diagnóstico"}</button></div>
     {!diagnostics && <div className="diagnostics-empty"><span aria-hidden="true">+</span><div><strong>Pronto para verificar</strong><p>Analisa Query, canais protegidos, grupos, salas, SQLite, backups, armazenamento e configuração segura.</p></div></div>}
     {diagnostics && <><div className="diagnostics-summary"><span className={`diagnostics-overall is-${overall}`} aria-hidden="true">{overall === "pass" ? "✓" : overall === "warn" ? "!" : "×"}</span><div><strong>{overallLabel}</strong><small>{diagnostics.summary.pass} OK · {diagnostics.summary.warn} {diagnostics.summary.warn === 1 ? "aviso" : "avisos"} · {diagnostics.summary.fail} {diagnostics.summary.fail === 1 ? "falha" : "falhas"} · {diagnostics.durationMs} ms</small></div><time dateTime={new Date(diagnostics.ranAt).toISOString()}>{formatDate(diagnostics.ranAt)}</time></div><div className="diagnostics-list">{diagnostics.checks.map((check) => <article key={check.id} className={`is-${check.status}`}><span aria-hidden="true">{check.status === "pass" ? "✓" : check.status === "warn" ? "!" : "×"}</span><div><strong>{check.label}</strong><p>{check.detail}</p></div><b>{check.status === "pass" ? "OK" : check.status === "warn" ? "Aviso" : "Falha"}</b></article>)}</div></>}
@@ -406,16 +414,22 @@ function IncidentTimeline({ incidents = [], busy, onNote, canManage }) {
 
 function RoomOperations({ rooms = [], canManage, busy, onDeleteRoom, onImportRooms, confirmAction }) {
   const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const filters = [
     { key: "all", label: "Todas" },
     { key: "expiring", label: "A expirar" },
     { key: "idle", label: "Pouca atividade" },
     { key: "unsynced", label: "Dessincronizadas" }
   ];
-  const visible = rooms.filter((room) => filter === "all" || (filter === "expiring" && room.autoExpire && room.remainingDays <= 7) || (filter === "idle" && room.inactivityDays >= 14) || (filter === "unsynced" && !room.synchronized));
-  return <section className="panel admin-section rooms-section">
+  const normalizedQuery = query.trim().toLocaleLowerCase("pt-PT");
+  const visible = rooms.filter((room) => {
+    const matchesFilter = filter === "all" || (filter === "expiring" && room.autoExpire && room.remainingDays <= 7) || (filter === "idle" && room.inactivityDays >= 14) || (filter === "unsynced" && !room.synchronized);
+    const matchesQuery = !normalizedQuery || [room.title, room.creator?.nickname, room.creator?.databaseId].join(" ").toLocaleLowerCase("pt-PT").includes(normalizedQuery);
+    return matchesFilter && matchesQuery;
+  });
+  return <section className="panel admin-section rooms-section" id="admin-rooms">
     <div className="admin-section-head"><div><p className="eyebrow">TeamSpeak</p><h3>Salas permanentes</h3></div><div className="alerts-head-actions"><span className="badge">{rooms.length}</span>{canManage && <button className="compact-action" type="button" disabled={Boolean(busy)} onClick={async () => await confirmAction({ title: "Importar salas antigas", message: "O painel vai procurar estruturas compatíveis acima das salas temporárias e associá-las ao respetivo Channel Admin. Nenhum canal será alterado ou apagado.", confirmLabel: "Importar salas" }) && onImportRooms()}>{busy === "rooms:import" ? "A procurar..." : "Importar antigas"}</button>}</div></div>
-    <div className="room-filter-bar" role="group" aria-label="Filtrar salas">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} onClick={() => setFilter(item.key)}>{item.label}</button>)}</div>
+    <div className="room-tools"><label className="admin-search"><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar sala, proprietário ou DB ID" aria-label="Pesquisar salas permanentes" /></label><div className="room-filter-bar" role="group" aria-label="Filtrar salas">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} onClick={() => setFilter(item.key)}>{item.label}</button>)}</div></div>
     <div className="room-status-list">{visible.map((item) => { const tone = !item.synchronized ? "is-danger" : item.autoExpire && item.remainingDays <= 7 ? "is-warning" : "is-success"; const status = !item.synchronized ? "Rever" : item.autoExpire && item.remainingDays <= 7 ? `${item.remainingDays} d` : "Ativa"; return <div key={item.id}><span><strong>{item.title}</strong><small>{item.creator?.nickname || "Utilizador"} · {item.channelCount} canais · atividade {item.inactivityDays === 0 ? "hoje" : `há ${item.inactivityDays} d`}</small></span><span className="room-admin-controls"><span className={`status-chip ${tone}`}>{status}</span>{canManage && <button className="table-action is-danger" type="button" disabled={Boolean(busy)} onClick={async () => await confirmAction({ title: "Apagar sala permanente", message: `A sala “${item.title}” e os respetivos canais serão removidos do TeamSpeak.`, confirmLabel: "Apagar sala", danger: true }) && onDeleteRoom(item)}>{busy === `room:${item.id}` ? "A apagar..." : "Apagar"}</button>}</span></div>; })}{!visible.length && <p className="empty-admin-row">Não existem salas neste filtro.</p>}</div>
   </section>;
 }
@@ -463,7 +477,7 @@ function AdminAlerts({ alerts = [], onRead, onNote, busy }) {
   const unread = alerts.filter((alert) => !alert.read);
   const filtered = alerts.filter((alert) => filter === "all" || (filter === "new" && !alert.read) || (filter === "active" && alert.active) || (filter === "resolved" && !alert.active));
   const filters = [{ key: "new", label: "Novas", count: unread.length }, { key: "active", label: "Ativas", count: active.length }, { key: "resolved", label: "Resolvidas", count: alerts.length - active.length }, { key: "all", label: "Todas", count: alerts.length }];
-  return <section className="panel admin-section alerts-section">
+  return <section className="panel admin-section alerts-section" id="admin-alerts">
     <div className="admin-section-head alerts-head"><div><p className="eyebrow">Caixa da staff</p><h3>Notificações operacionais</h3></div><div className="alerts-head-actions"><span className={`status-chip ${active.length ? "is-danger" : "is-success"}`}>{active.length ? `${active.length} ${active.length === 1 ? "ativo" : "ativos"}` : "Sem alertas"}</span>{unread.length > 0 && <button className="mark-all-button" type="button" disabled={Boolean(busy)} onClick={() => onRead(null)}>{busy === "alerts:all" ? "A guardar..." : `Marcar ${unread.length} como lida${unread.length === 1 ? "" : "s"}`}</button>}</div></div>
     <div className="alert-filter-bar" role="group" aria-label="Filtrar notificações">{filters.map((item) => <button type="button" key={item.key} className={filter === item.key ? "is-active" : ""} onClick={() => setFilter(item.key)}><span>{item.label}</span><b>{item.count}</b></button>)}</div>
     <div className="alerts-list">{filtered.map((alert) => <article className={`admin-alert is-${alert.severity} ${alert.active ? "is-active" : "is-resolved"} ${alert.read ? "is-read" : "is-unread"}`} key={alert.id}><span className="admin-alert-mark" aria-hidden="true">{alert.active ? "!" : "✓"}</span><div><span className="alert-title-line"><strong>{alert.type === "query" ? "ServerQuery" : alert.type === "security" ? "Segurança" : alert.type === "maintenance" ? "Manutenção" : "Sincronização"}</strong>{!alert.read && <b>Nova</b>}</span><p>{alert.message}</p><small>{alert.active ? `Detetado ${formatDate(alert.createdAt)}` : `Resolvido ${formatDate(alert.resolvedAt)}`}</small>{alert.staffNote && <p className="staff-note"><b>{alert.staffNoteBy || "Staff"}</b> · {alert.staffNote}</p>}{editing === alert.id && <form className="inline-note-form" onSubmit={async (event) => { event.preventDefault(); if (await onNote(alert.id, note)) setEditing(null); }}><input value={note} onChange={(event) => setNote(event.target.value)} maxLength="300" placeholder="Nota interna para a staff" autoFocus /><button type="submit" disabled={Boolean(busy)}>Guardar</button><button type="button" onClick={() => setEditing(null)}>Cancelar</button></form>}</div><div className="admin-alert-controls"><span className="admin-alert-state">{alert.active ? "Ação necessária" : "Resolvido"}</span>{!alert.read && <button className="alert-read-button" type="button" disabled={Boolean(busy)} onClick={() => onRead(alert.id)}>{busy === `alert:${alert.id}` ? "A guardar..." : "Marcar como lida"}</button>}<button className="text-action" type="button" onClick={() => { setEditing(alert.id); setNote(alert.staffNote || ""); }}>Nota interna</button></div></article>)}{!filtered.length && <div className="alerts-empty"><strong>Sem notificações neste filtro</strong><span>Os novos eventos surgem aqui automaticamente.</span></div>}</div>
@@ -476,6 +490,9 @@ function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRe
 
   const teamSpeak = data.health?.teamSpeak || {};
   const canManage = Boolean(data.permissions?.canManage);
+  const activeAlerts = (data.alerts || []).filter((alert) => alert.active).length;
+  const unsyncedRooms = Number(data.counts?.unsynchronizedRooms) || 0;
+  const failures = Number(data.counts?.failures24h) || 0;
   return <div className="admin-dashboard">
     <section className="admin-heading" aria-labelledby="admin-title">
       <div className="admin-heading-copy"><p className="admin-heading-kicker"><span aria-hidden="true" />Centro de operações</p><h2 id="admin-title">Administração e segurança</h2><p>{canManage ? "Supervisão do TeamSpeak, acessos e infraestrutura num único painel." : "Supervisão em modo de leitura. Os endereços de rede aparecem anonimizados."}</p></div>
@@ -483,6 +500,7 @@ function AdminDashboard({ data, busy, error, diagnostics, onRunDiagnostics, onRe
     </section>
     {error && <div className="admin-warning" role="status">{error} A mostrar os últimos dados disponíveis.</div>}
     {actionMessage.text && <div className={`admin-action-message is-${actionMessage.type}`} role="status">{actionMessage.text}</div>}
+    <nav className="admin-command-bar" aria-label="Atalhos da administração"><span><b>{activeAlerts + unsyncedRooms + failures}</b> prioridades</span><a href="#admin-alerts">Alertas <b>{activeAlerts}</b></a><a href="#admin-rooms">Salas <b>{unsyncedRooms}</b></a>{canManage && <a href="#admin-diagnostics">Diagnóstico</a>}<a href="#admin-audit">Auditoria</a></nav>
     <section className="metric-strip" aria-label="Resumo administrativo">
       <div className="admin-metric"><span className="metric-index">01</span><span className="metric-dot is-good" /><strong>{data.health?.queryLatencyMs ?? "-"} ms</strong><small>Resposta ServerQuery</small></div>
       <div className="admin-metric"><span className="metric-index">02</span><span className="metric-dot is-good" /><strong>{data.counts?.activeSessions ?? 0}</strong><small>Sessões web ativas</small></div>
@@ -542,6 +560,7 @@ function App() {
   const [diagnostics, setDiagnostics] = useState(null);
   const [toast, setToast] = useState(null), [confirmDialog, setConfirmDialog] = useState(null);
   const confirmResolver = useRef(null);
+  const roomMutation = useRef(false);
   const room = useMemo(() => normalizeRoom(auth.activeRoom), [auth.activeRoom]);
   function showToast(text, type = "success") { setToast({ text, type, id: Date.now() }); }
   function confirmAction(options) {
@@ -696,19 +715,25 @@ function App() {
     catch (error) { setGroupMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); } finally { setGroupsBusy(false); }
   }
   async function createRoom(payload) {
+    if (roomMutation.current) return false;
+    roomMutation.current = true;
     setRoomBusy(true); setRoomMessage({ text: "A criar a sala no TeamSpeak...", type: "neutral" });
     try { const result = await api("/api/rooms", { method: "POST", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomOpen(true); const text = `Sala criada com ${result.room.channels.length} ${result.room.channels.length === 1 ? "subsala" : "subsalas"}.`; setRoomMessage({ text: `${text} Recebeste Channel Admin em toda a estrutura.`, type: "success" }); showToast(text); return true; }
-    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); return false; } finally { setRoomBusy(false); }
+    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); return false; } finally { roomMutation.current = false; setRoomBusy(false); }
   }
   async function updateRoom(payload) {
+    if (roomMutation.current) return false;
+    roomMutation.current = true;
     setRoomBusy(true); setRoomMessage({ text: "A guardar alterações no TeamSpeak...", type: "neutral" });
     try { const result = await api("/api/rooms", { method: "PATCH", body: JSON.stringify(payload) }); setAuth((current) => ({ ...current, activeRoom: normalizeRoom(result.room) })); setRoomMessage({ text: "Estrutura da sala atualizada no TeamSpeak.", type: "success" }); showToast("Sala atualizada no TeamSpeak."); return true; }
-    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); return false; } finally { setRoomBusy(false); }
+    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); return false; } finally { roomMutation.current = false; setRoomBusy(false); }
   }
   async function deleteRoom(target) {
+    if (roomMutation.current) return false;
+    roomMutation.current = true;
     setRoomBusy(true); setRoomMessage({ text: "A apagar a sala no TeamSpeak...", type: "neutral" });
     try { await api("/api/rooms", { method: "DELETE", body: JSON.stringify({ id: target.id }) }); setAuth((current) => ({ ...current, activeRoom: null })); setRoomOpen(false); setRoomMessage({ text: "Sala apagada. O separador fixo foi preservado.", type: "success" }); showToast("Sala apagada; o separador protegido foi preservado."); }
-    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); } finally { setRoomBusy(false); }
+    catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); } finally { roomMutation.current = false; setRoomBusy(false); }
   }
 
   function navigateMobile(target) {

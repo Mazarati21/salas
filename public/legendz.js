@@ -26,6 +26,15 @@
       .then(function (response) { if (!response.ok) throw new Error("HTTP " + response.status); return response.json(); })
       .finally(function () { clearTimeout(timer); });
   }
+  function readCache(key, maxAge) {
+    try {
+      var cached = JSON.parse(localStorage.getItem("legendz-cache:" + key) || "null");
+      return cached && Date.now() - cached.savedAt <= maxAge ? cached.payload : null;
+    } catch (_) { return null; }
+  }
+  function writeCache(key, payload) {
+    try { localStorage.setItem("legendz-cache:" + key, JSON.stringify({ savedAt: Date.now(), payload: payload })); } catch (_) {}
+  }
   function setServerState(online) {
     setText("[data-server-state]", online ? "Operacional" : "Indisponível");
     all("[data-server-light]").forEach(function (node) { node.classList.toggle("is-offline", !online); });
@@ -79,6 +88,7 @@
   }
   function updateMetrics() {
     return requestJson("/salas/api/status", 8000).then(function (payload) {
+      writeCache("status", payload);
       var metrics = payload && payload.teamSpeakOnline && payload.metrics;
       setServerState(Boolean(metrics));
       all("[data-maintenance]").forEach(function (node) { node.hidden = !payload.maintenance || !payload.maintenance.enabled; });
@@ -95,7 +105,8 @@
         node.style.width = percent + "%";
       });
       renderStatusHistory(payload.history);
-    }).catch(function () { setServerState(false); setText("[data-updated]", "Sem resposta"); });
+    }).catch(function () { setServerState(false); setText("[data-updated]", "Sem resposta"); })
+      .finally(function () { document.body.classList.remove("is-loading-data"); });
   }
   function setupTheme() {
     all("[data-theme-toggle]").forEach(function (button) {
@@ -136,10 +147,29 @@
     var rows = document.querySelector("[data-ban-rows]");
     var search = document.querySelector("[data-ban-search]");
     if (!rows || !search) return;
-    var bans = [];
+    var filter = document.querySelector("[data-ban-filter]");
+    var pagination = document.querySelector("[data-ban-pagination]");
+    var previous = document.querySelector("[data-ban-prev]");
+    var next = document.querySelector("[data-ban-next]");
+    var bans = [], pageIndex = 0, pageSize = 15;
+    function usePayload(payload, cached) {
+      bans = Array.isArray(payload && payload.bans) ? payload.bans : [];
+      setText("[data-ban-count]", String(bans.length).padStart(2, "0"));
+      setText("[data-ban-summary]", bans.length === 1 ? "1 ban ativo" : bans.length + " bans ativos");
+      setText("[data-ban-updated]", cached ? "A mostrar a última leitura guardada" : "Atualizado " + relativeTime(payload.fetchedAt).toLowerCase());
+      render();
+    }
     function render() {
       var query = search.value.trim().toLocaleLowerCase("pt-PT");
-      var visible = bans.filter(function (item) { return [item.name, item.reason, item.staff].join(" ").toLocaleLowerCase("pt-PT").includes(query); });
+      var durationFilter = filter ? filter.value : "all";
+      var visible = bans.filter(function (item) {
+        var matchesQuery = [item.name, item.reason, item.staff].join(" ").toLocaleLowerCase("pt-PT").includes(query);
+        var matchesDuration = durationFilter === "all" || (durationFilter === "permanent" && item.permanent) || (durationFilter === "temporary" && !item.permanent);
+        return matchesQuery && matchesDuration;
+      });
+      var pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+      pageIndex = Math.min(pageIndex, pageCount - 1);
+      var pageItems = visible.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
       rows.replaceChildren();
       if (!visible.length) {
         var emptyRow = document.createElement("tr"), emptyCell = document.createElement("td");
@@ -148,40 +178,71 @@
         emptyCell.textContent = query ? "Nenhum registo corresponde à pesquisa." : "Não existem bans ativos.";
         emptyRow.appendChild(emptyCell);
         rows.appendChild(emptyRow);
+        if (pagination) pagination.hidden = true;
+        setText("[data-ban-visible]", "0 registos encontrados");
         return;
       }
-      visible.forEach(function (item) {
+      pageItems.forEach(function (item) {
         var row = document.createElement("tr");
         [item.name, item.reason, item.staff, formatDate(item.createdAt), item.permanent ? "Permanente" : formatDate(item.expiresAt)].forEach(function (value, index) {
           var cell = document.createElement("td");
           cell.textContent = value;
-          if (index === 0) cell.className = "record-user";
+          if (index === 0) {
+            cell.className = "record-user";
+            if (Number(item.technicalRecords) > 1) {
+              var grouped = document.createElement("small");
+              grouped.className = "record-grouped";
+              grouped.textContent = item.technicalRecords + " registos técnicos agrupados";
+              cell.appendChild(grouped);
+            }
+          }
           if (index === 4 && item.permanent) cell.className = "record-permanent";
           row.appendChild(cell);
         });
         rows.appendChild(row);
       });
+      setText("[data-ban-visible]", visible.length === bans.length ? visible.length + " registos" : visible.length + " de " + bans.length + " registos");
+      setText("[data-ban-page]", "Página " + (pageIndex + 1) + " de " + pageCount);
+      if (pagination) pagination.hidden = pageCount <= 1;
+      if (previous) previous.disabled = pageIndex === 0;
+      if (next) next.disabled = pageIndex >= pageCount - 1;
     }
-    search.addEventListener("input", render);
+    search.addEventListener("input", function () { pageIndex = 0; render(); });
+    if (filter) filter.addEventListener("change", function () { pageIndex = 0; render(); });
+    if (previous) previous.addEventListener("click", function () { pageIndex = Math.max(0, pageIndex - 1); render(); });
+    if (next) next.addEventListener("click", function () { pageIndex += 1; render(); });
+    var cached = readCache("bans", 60 * 60 * 1000);
+    if (cached) usePayload(cached, true);
     requestJson("/salas/api/bans", 8000).then(function (payload) {
-      bans = Array.isArray(payload.bans) ? payload.bans : [];
-      setText("[data-ban-count]", String(bans.length).padStart(2, "0"));
-      setText("[data-ban-summary]", bans.length === 1 ? "1 ban ativo" : bans.length + " bans ativos");
-      setText("[data-ban-updated]", "Atualizado " + relativeTime(payload.fetchedAt).toLowerCase());
-      render();
+      writeCache("bans", payload);
+      usePayload(payload, false);
     }).catch(function () {
+      if (cached) { setText("[data-ban-updated]", "Sem ligação · última leitura guardada"); return; }
       setText("[data-ban-summary]", "Serviço indisponível");
       setText("[data-ban-updated]", "Não foi possível sincronizar");
       rows.replaceChildren();
       var row = document.createElement("tr"), cell = document.createElement("td");
       cell.colSpan = 5; cell.className = "records-empty"; cell.textContent = "Não foi possível obter os registos. Tenta novamente dentro de instantes.";
       row.appendChild(cell); rows.appendChild(row);
-    });
+    }).finally(function () { document.body.classList.remove("is-loading-data"); });
   }
 
   setupTheme();
   setText("[data-year]", new Date().getFullYear());
-  if (page === "home" || page === "status") { updateMetrics(); metricsTimer = setInterval(updateMetrics, 30000); }
+  if (page === "home" || page === "status") {
+    var cachedStatus = readCache("status", 60 * 60 * 1000);
+    if (cachedStatus && cachedStatus.metrics) {
+      var cachedMetrics = cachedStatus.metrics;
+      setServerState(Boolean(cachedStatus.teamSpeakOnline));
+      setText("[data-slots]", cachedMetrics.slotsUsed + "/" + cachedMetrics.slotsTotal);
+      setText("[data-uptime]", Math.floor(Number(cachedMetrics.uptimeSeconds) / 86400) + " dias");
+      setText("[data-download]", formatBytes(cachedMetrics.bytesDownloaded));
+      setText("[data-upload]", formatBytes(cachedMetrics.bytesUploaded));
+      setText("[data-updated]", "Última leitura guardada");
+      renderStatusHistory(cachedStatus.history);
+    }
+    updateMetrics(); metricsTimer = setInterval(updateMetrics, 30000);
+  }
   if (page === "home") setupRadio();
   if (page === "bans") setupBans();
   addEventListener("pagehide", function () { if (metricsTimer) clearInterval(metricsTimer); });
