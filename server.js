@@ -640,7 +640,13 @@ async function createChannel(ts, label, properties) {
     .join(" ");
   const created = parseItems(await ts.command(label, `channelcreate ${command}`))[0];
   if (!created?.cid) throw new Error(`${label}: resposta sem cid.`);
-  return Number(created.cid);
+  const cid = Number(created.cid);
+  const channel = parseItems(await ts.command(`validar ${label}`, `channelinfo cid=${cid}`))[0] || {};
+  if (!String(channel.channel_filepath || "").trim()) {
+    await ts.command("remover canal sem armazenamento", `channeldelete cid=${cid} force=1`).catch(() => {});
+    throw new Error(`${label}: o TeamSpeak não atribuiu armazenamento ao canal; criação revertida.`);
+  }
+  return cid;
 }
 
 async function giveChannelAdmin(ts, creator, cids) {
