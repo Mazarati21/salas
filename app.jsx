@@ -622,7 +622,7 @@ function App() {
 
   async function deleteAdminRoom(room) {
     setAdminActionBusy(`room:${room.id}`); setAdminActionMessage({ text: "", type: "success" });
-    try { await api("/api/admin/rooms", { method: "DELETE", body: JSON.stringify({ id: room.id }) }); const text = `A sala “${room.title}” foi removida do TeamSpeak.`; setAdminActionMessage({ text, type: "success" }); showToast(text); await refreshAdmin(false); }
+    try { const result = await api("/api/admin/rooms", { method: "DELETE", body: JSON.stringify({ id: room.id }) }); const moved = Number(result.movedClients || 0); const text = `A sala “${room.title}” foi removida do TeamSpeak.${moved ? ` ${moved} ${moved === 1 ? "utilizador foi movido" : "utilizadores foram movidos"} para o canal predefinido.` : ""}`; setAdminActionMessage({ text, type: "success" }); showToast(text); await refreshAdmin(false); }
     catch (error) { setAdminActionMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); }
     finally { setAdminActionBusy(""); }
   }
@@ -732,7 +732,7 @@ function App() {
     if (roomMutation.current) return false;
     roomMutation.current = true;
     setRoomBusy(true); setRoomMessage({ text: "A apagar a sala no TeamSpeak...", type: "neutral" });
-    try { await api("/api/rooms", { method: "DELETE", body: JSON.stringify({ id: target.id }) }); setAuth((current) => ({ ...current, activeRoom: null })); setRoomOpen(false); setRoomMessage({ text: "Sala apagada. O separador fixo foi preservado.", type: "success" }); showToast("Sala apagada; o separador protegido foi preservado."); }
+    try { const result = await api("/api/rooms", { method: "DELETE", body: JSON.stringify({ id: target.id }) }); const moved = Number(result.movedClients || 0); const detail = moved ? ` ${moved === 1 ? "O utilizador presente foi movido" : `${moved} utilizadores presentes foram movidos`} para o canal predefinido.` : ""; setAuth((current) => ({ ...current, activeRoom: null })); setRoomOpen(false); setRoomMessage({ text: `Sala apagada. O separador fixo foi preservado.${detail}`, type: "success" }); showToast(`Sala apagada sem interromper os utilizadores.${detail}`); }
     catch (error) { setRoomMessage({ text: error.message, type: "error" }); showToast(error.message, "error"); } finally { roomMutation.current = false; setRoomBusy(false); }
   }
 

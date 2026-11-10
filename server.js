@@ -9,6 +9,7 @@ const { DataStore } = require("./tools/data-store");
 const { discoverLegacyRooms } = require("./tools/legacy-rooms");
 const { normalizePublicBans } = require("./tools/public-bans");
 const { expiryWarning, isRoomExpired, observedRoomActivityAt } = require("./tools/room-activity");
+const { clientsInChannels, findEvacuationChannel, roomChannelIds } = require("./tools/room-deletion");
 const { publicServerMetrics } = require("./tools/server-metrics");
 const { TeamSpeakService, parseItems, tsEscape } = require("./tools/teamspeak-query");
 
@@ -573,7 +574,22 @@ async function updateUserGroups(payload, session) {
 }
 
 async function getChannels(ts) {
-  return parseItems(await ts.command("listar canais", "channellist"));
+  return parseItems(await ts.command("listar canais", "channellist -flags"));
+}
+
+async function evacuateChannelUsers(ts, channels, channelIds) {
+  const ids = channelIds instanceof Set ? channelIds : new Set(channelIds.map(Number));
+  const occupants = clientsInChannels(await listHumanClients(ts), ids);
+  if (!occupants.length) return 0;
+
+  const targetCid = findEvacuationChannel(channels, ids);
+  if (!targetCid) {
+    throw new HttpError(503, "Não foi encontrado um canal seguro para retirar os utilizadores antes de apagar a sala.");
+  }
+  for (const client of occupants) {
+    await ts.command("retirar utilizador da sala", `clientmove clid=${Number(client.clid)} cid=${targetCid}`);
+  }
+  return occupants.length;
 }
 
 async function reconcileRooms(ts) {
@@ -796,6 +812,8 @@ async function updateRoom(payload, session) {
 
   return withTeamSpeak(async (ts) => {
     const creator = await getSessionClient(ts, session);
+    const channelSnapshot = removedChannels.length ? await getChannels(ts) : [];
+    await evacuateChannelUsers(ts, channelSnapshot, removedChannels.map((channel) => Number(channel.cid)));
     await ts.command("renomear sala principal", `channeledit cid=${room.teamspeak.parentCid} channel_name=${tsEscape(titleSpacerName(title))}`);
     const updatedChannels = [];
     const createdCids = [];
@@ -864,6 +882,10 @@ async function updateRoom(payload, session) {
 
 async function deleteStoredRoom(ts, room) {
   const channels = await getChannels(ts);
+  const existingChannelIds = new Set(roomChannelIds(room).filter((cid) => (
+    channels.some((channel) => Number(channel.cid) === cid)
+  )));
+  const movedClients = await evacuateChannelUsers(ts, channels, existingChannelIds);
   const topLine = channels.find((channel) => Number(channel.cid) === room.teamspeak.topLineCid);
   const protectedSeparator = channels.find((channel) => Number(channel.cid) === protectedThinSeparatorCid);
   if (protectedSeparator && Number(protectedSeparator.channel_order) === room.teamspeak.parentCid) {
@@ -873,13 +895,13 @@ async function deleteStoredRoom(ts, room) {
     );
   }
 
-  const roomCids = [...room.channels.map((channel) => channel.cid), room.teamspeak.parentCid, room.teamspeak.topLineCid];
-  for (const cid of roomCids) {
-    if (channels.some((channel) => Number(channel.cid) === Number(cid))) {
-      await ts.command("apagar canal da sala", `channeldelete cid=${Number(cid)} force=1`);
+  for (const cid of roomChannelIds(room)) {
+    if (existingChannelIds.has(cid)) {
+      await ts.command("apagar canal da sala", `channeldelete cid=${cid} force=1`);
     }
   }
   store.markRoomInactive(room.id);
+  return { movedClients };
 }
 
 async function deleteRoom(payload, session) {
@@ -887,7 +909,7 @@ async function deleteRoom(payload, session) {
   const room = getOwnedRoom(session, payload.id);
   return withTeamSpeak(async (ts) => {
     await getSessionClient(ts, session);
-    await deleteStoredRoom(ts, room);
+    return deleteStoredRoom(ts, room);
   });
 }
 
@@ -897,7 +919,7 @@ async function deleteRoomAsFounder(payload, session) {
   if (!room) throw new HttpError(404, "Sala ativa não encontrada.");
   return withTeamSpeak(async (ts) => {
     await requireFounder(ts, session);
-    await deleteStoredRoom(ts, room);
+    return deleteStoredRoom(ts, room);
   });
 }
 
@@ -1635,8 +1657,8 @@ async function handleApi(request, response, pathname) {
     if (pathname === "/api/admin/rooms" && request.method === "DELETE") {
       const session = requireSession(request, true);
       const body = await readBody(request);
-      await auditAction(request, session, "admin.room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoomAsFounder(body, session)));
-      sendJson(response, 200, { ok: true });
+      const result = await auditAction(request, session, "admin.room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoomAsFounder(body, session)));
+      sendJson(response, 200, { ok: true, ...result });
       return;
     }
 
@@ -1734,8 +1756,8 @@ async function handleApi(request, response, pathname) {
       const session = requireSession(request, true);
       assertPanelWritable();
       const body = await readBody(request);
-      await auditAction(request, session, "room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoom(body, session)));
-      sendJson(response, 200, { ok: true });
+      const result = await auditAction(request, session, "room.delete", body.id, () => withMutationLock(`room:${body.id}`, () => deleteRoom(body, session)));
+      sendJson(response, 200, { ok: true, ...result });
       return;
     }
 
